@@ -1,0 +1,325 @@
+# 起风了个人作品集博客 - Agent 开发手册
+
+> 适用对象：接手本仓库的开发 Agent、维护者和代码生成助手。
+> 当前文档按现有项目状态整理，不再描述早期 mock-only 方案。
+
+## 1. 项目定位
+
+`起风了` 是一个个人作品集博客，包含公开站点、用户登录资料页、评论能力和博主管理后台。
+
+核心气质：
+
+- 温暖、克制、有风感。
+- 以水豚吉祥物“祁”为视觉 IP。
+- 公开页面偏博客和作品集，后台页面偏工具化、信息密度高。
+
+开发原则：
+
+- 先读现有代码，再改动。
+- 优先沿用当前目录、API、组件和 CSS token。
+- 不做无关重构，不引入未经确认的新框架。
+- 所有提交前必须跑 `npm.cmd run build`，后端改动至少做语法/接口级检查。
+
+## 2. 技术栈
+
+### 前端
+
+- Vue 3 + `<script setup>`
+- TypeScript
+- Vite 5
+- Vue Router 4
+- Pinia
+- UnoCSS
+- marked
+- highlight.js
+- ECharts / vue-echarts
+
+### 后端
+
+- FastAPI
+- SQLModel
+- SQLAlchemy async
+- asyncpg / psycopg2-binary
+- python-jose JWT
+- passlib bcrypt
+- PostgreSQL
+
+## 3. 当前目录结构
+
+```text
+.
+├─ frontend/
+│  ├─ public/
+│  │  ├─ animations/          # 水豚动图资源，WebP/GIF
+│  │  └─ avatars/             # 用户资料页固定头像库
+│  ├─ src/
+│  │  ├─ api/                 # 前端 API 封装
+│  │  ├─ assets/              # 页面静态图片资源
+│  │  ├─ components/          # 通用组件
+│  │  ├─ composables/         # 组合式逻辑
+│  │  ├─ data/                # 本地补充数据
+│  │  ├─ router/              # 路由与守卫
+│  │  ├─ stores/              # Pinia stores
+│  │  ├─ styles/tokens.css    # 全局设计变量与基础样式
+│  │  ├─ types/               # 前端类型
+│  │  └─ views/               # 页面和后台页面
+│  ├─ package.json
+│  └─ vite.config.ts
+├─ backend/
+│  ├─ routers/                # FastAPI routers
+│  ├─ scripts/                # 初始化、导入、云端配置脚本
+│  ├─ auth.py                 # JWT 与鉴权工具
+│  ├─ database.py             # 异步数据库连接
+│  ├─ main.py                 # FastAPI 应用入口
+│  └─ models.py               # SQLModel 表与请求响应模型
+├─ QI_BLOG_AGENT_PROMPT.md
+└─ PROGRESS.md
+```
+
+## 4. 路由与页面
+
+### 公开前台
+
+| 路由 | 页面 | 说明 |
+|---|---|---|
+| `/` | `HomeView.vue` | 首页，Hero、精选项目、文章预览 |
+| `/about` | `AboutView.vue` | 关于页 |
+| `/projects` | `ProjectsView.vue` | 项目列表与分类筛选 |
+| `/blog` | `BlogView.vue` | 文章列表、搜索、标签筛选 |
+| `/blog/:slug` | `PostView.vue` | 文章详情、Markdown、目录、评论 |
+| `/profile` | `ProfileView.vue` | 登录用户资料页、固定头像选择、改密码 |
+| fallback | `NotFoundView.vue` | 404 |
+
+### 后台
+
+| 路由 | 页面 | 权限 |
+|---|---|---|
+| `/admin` | `AdminDashboard.vue` | admin |
+| `/admin/posts` | `AdminPosts.vue` | admin |
+| `/admin/posts/new` | `AdminPostEdit.vue` | admin |
+| `/admin/posts/:slug/edit` | `AdminPostEdit.vue` | admin |
+| `/admin/projects` | `AdminProjects.vue` | admin |
+
+`/admin/login` 已重定向到首页，登录通过导航栏弹窗完成。
+
+## 5. API 概览
+
+前端统一通过 `src/api/client.ts` 发请求，自动附带 `qi_token` JWT。
+
+### 用户
+
+- `POST /api/users/register`
+- `POST /api/users/login`
+- `GET /api/users/me`
+- `PATCH /api/users/me`
+- `PATCH /api/users/password`
+
+### 文章
+
+- `GET /api/posts?page=1&limit=10&tag=Vue`
+- `GET /api/posts/{slug}`
+- `GET /api/posts/{slug}/adjacent`
+- `POST /api/posts`，admin
+- `PATCH /api/posts/{slug}`，admin
+- `DELETE /api/posts/{slug}`，admin
+
+### 项目
+
+- `GET /api/projects`
+- `GET /api/projects?category=前端`
+- `POST /api/projects`，admin
+- `PATCH /api/projects/{id}`，admin
+- `DELETE /api/projects/{id}`，admin
+
+### 评论
+
+- `GET /api/comments/{post_slug}`
+- `POST /api/comments/{post_slug}`，登录用户
+- `DELETE /api/comments/{comment_id}`，本人或 admin
+- `DELETE /api/comments/admin/{comment_id}`，admin
+
+### 后台统计
+
+- `GET /api/admin/stats`，admin
+
+## 6. 资源规范
+
+### 水豚动画
+
+位置：`frontend/public/animations/`
+
+当前组件通过站点根路径访问，例如：
+
+```text
+/animations/qi_wave_medium.webp
+/animations/qi_type_small_transp.gif
+```
+
+`QiMascot.vue` 支持：
+
+- state: `wave | type | think | wind | singing | wake`
+- size: `small | medium | large`
+- `autoSwitch`: 跟随滚动进度切换状态
+
+注意：
+
+- `singing` 当前映射到 `wave` 资源。
+- 不要把暗色主题选择器写成 `:global([data-theme="dark"]) .xxx`，在 Vue scoped CSS 下应写成 `:global([data-theme="dark"] .xxx)`，避免样式错误套到 `html` 上。
+
+### 固定头像库
+
+位置：`frontend/public/avatars/`
+
+当前只允许五个头像：
+
+```text
+qi-avatar-coding.png
+qi-avatar-wake.png
+qi-avatar-wind.png
+qi-avatar-wave.png
+qi-avatar-think.png
+```
+
+用户资料页保存的是站内路径：
+
+```text
+/avatars/qi-avatar-coding.png
+```
+
+不要恢复自由头像 URL 输入，避免外链失效、混合内容和不可控资源。
+
+## 7. 设计系统
+
+全局 token 在 `frontend/src/styles/tokens.css`。
+
+主要变量：
+
+```css
+--qi-primary: #FF8C5A;
+--qi-accent: #FFD166;
+--qi-soft: #F4A0A0;
+--qi-wind: #A8D8C0;
+--qi-bg: #FFF8F0;
+--qi-bg-card: #FFF0E0;
+--qi-bg-muted: #FFF4E8;
+--qi-ink: #3A2A1A;
+--qi-ink-muted: #8A7060;
+--qi-ink-light: #C4A898;
+--qi-border: rgba(255, 140, 90, 0.15);
+--qi-shadow: rgba(58, 42, 26, 0.08);
+```
+
+暗色主题使用 `[data-theme="dark"]` 覆盖变量，不要在组件里硬编码大面积暗色。
+
+视觉规则：
+
+- 公开页：留白充分、暖色、轻动画。
+- 后台页：更克制，避免装饰过多，强调表格、表单和操作效率。
+- 卡片圆角一般不超过 16px；工具类小控件 8-12px；药丸按钮可用 999px。
+- 不要用一整页同一色相堆叠，必要时用边框、透明层和浅背景分层。
+- 禁止让固定元素或图片 transform 造成横向溢出。
+
+## 8. 前端代码规范
+
+### Vue 与 TypeScript
+
+- 所有 Vue 文件使用 `<script setup lang="ts">`。
+- props、emit、表单对象、API payload 必须有明确类型。
+- `computed` 用于派生状态；不要在模板里写复杂表达式。
+- `watch` 只处理同步外部状态到本地表单、节流副作用或必要异步更新。
+- 避免 `any`；适配后端原始数据时可局部使用，并尽快转成前端类型。
+- 不允许为了通过编译关闭 `strict`、`noUnusedLocals`、`noUnusedParameters`。
+
+### 组件拆分
+
+- 可复用 UI 放 `src/components/`。
+- 页面级业务放 `src/views/`。
+- 跨页面状态放 `src/stores/`。
+- 纯组合逻辑放 `src/composables/`。
+- API 请求只放 `src/api/`，页面不要直接拼 fetch，已有例外可逐步收敛。
+
+### 样式
+
+- 优先使用 `var(--qi-*)` 和 `var(--navbar-*)`。
+- 组件局部样式使用 `<style scoped>`。
+- 全局 reset、动画 keyframes、主题变量只放 `tokens.css`。
+- 使用 `box-sizing: border-box` 的前提设计尺寸，避免 `100vw` 造成横向滚动。
+- 页面级固定高度必须确认移动端有 fallback，避免内容被裁。
+- 文本必须在移动端可换行，不允许按钮或卡片文字溢出。
+
+### 资源引用
+
+- `public` 下资源用站点根路径：`/avatars/...`、`/animations/...`。
+- `src/assets` 下资源用于构建打包导入。
+- 用户可选择的头像必须来自白名单。
+
+### 表单
+
+- 表单字段命名和后端 API payload 分开处理：
+  - 前端表单可用 camelCase。
+  - 发给后端时转换成 snake_case。
+- 保存失败必须展示后端错误信息或明确 fallback 文案。
+- loading 状态必须禁用提交按钮。
+
+## 9. 后端代码规范
+
+- router 按领域放在 `backend/routers/`。
+- 公开接口和 admin 接口明确依赖：
+  - 登录用户：`Depends(get_current_user)`
+  - 管理员：`Depends(get_current_admin)`
+- 请求/响应模型放 `models.py`，不要直接返回不受控 dict，统计类接口除外。
+- 数据库访问使用 `AsyncSession`。
+- 修改数据库对象后必须 `session.add()`、`commit()`，需要返回最新数据时 `refresh()`。
+- 错误响应使用 `HTTPException`，状态码要语义清晰。
+- 不要把真实数据库连接、JWT secret、服务器账号写入文档或提交到仓库。
+
+## 10. 常用命令
+
+### 前端
+
+```powershell
+cd D:\代码汇中\个人作品集博客\frontend
+npm install
+npm run dev
+npm.cmd run build
+```
+
+PowerShell 执行 `npx` 可能被策略拦截，优先用：
+
+```powershell
+npm.cmd exec vite build
+```
+
+### 后端
+
+```powershell
+cd D:\代码汇中\个人作品集博客\backend
+uvicorn main:app --reload --port 8000
+```
+
+如使用 conda，先激活项目环境。
+
+## 11. 验证清单
+
+每次改动完成至少检查：
+
+- `npm.cmd run build`
+- 受影响页面在亮色/暗色主题下是否正常。
+- 是否出现横向滚动条。
+- 导航栏、固定右下角水豚、返回顶部按钮是否遮挡核心内容。
+- 登录态相关页面是否处理未登录、普通用户、admin 三种情况。
+- API payload 字段是否与后端模型一致。
+
+前端视觉改动需要额外检查：
+
+- 1280px 桌面。
+- 768px 附近断点。
+- 390px 移动宽度。
+- 暗色模式。
+
+## 12. 已知注意点
+
+- 右下角固定水豚属于装饰元素，不能影响布局宽度。
+- 个人资料页桌面端当前按单屏优化，移动端保留滚动。
+- build 可能提示大 chunk 警告，当前不阻塞构建；如后续优化，可考虑后台图表和文章详情拆 chunk。
+- 文档和源码统一保存为 UTF-8，避免中文乱码。

@@ -1,0 +1,204 @@
+/* 起风了 · 设计系统 CSS 变量 */
+:root {
+  /* 主色系 */
+  --qi-primary:      #FF8C5A;
+  --qi-accent:       #FFD166;
+  --qi-soft:         #F4A0A0;
+  --qi-wind:         #A8D8C0;
+
+  /* 背景 */
+  --qi-bg:           #FFF8F0;
+  --qi-bg-card:      #FFF0E0;
+  --qi-bg-muted:     #FFF4E8;
+
+  /* 文字 */
+  --qi-ink:          #3A2A1A;
+  --qi-ink-muted:    #8A7060;
+  --qi-ink-light:    #C4A898;
+
+  /* 功能色 */
+  --qi-border:       rgba(255, 140, 90, 0.15);
+  --qi-shadow:       rgba(58, 42, 26, 0.08);
+
+  /* 层级 */
+  --qi-progress-h:   3px;
+  --qi-navbar-z:     100;
+}
+
+/* ── NavBar 专用变量（亮色） ── */
+:root {
+  --navbar-bg:              rgba(255, 248, 240, 0.92);
+  --navbar-border:          var(--qi-border);
+  --navbar-scrolled-bg:     rgba(255, 248, 240, 0.92);
+  --navbar-scrolled-shadow: 0 2px 12px rgba(58, 42, 26, 0.06);
+  --navbar-link-color:      var(--qi-ink-muted);
+  --navbar-title-color:     var(--qi-ink);
+  --navbar-control-bg:      var(--qi-bg-card);
+  --navbar-control-border:  var(--qi-border);
+  --navbar-control-color:   var(--qi-ink-muted);
+  --navbar-avatar-gradient: linear-gradient(135deg, var(--qi-primary), var(--qi-wind));
+  --navbar-avatar-color:    #fff;
+  --navbar-dropdown-bg:     var(--qi-bg-card);
+  --navbar-dropdown-shadow: 0 8px 24px rgba(58, 42, 26, 0.1);
+  --navbar-admin-bg:        rgba(255, 140, 90, 0.15);
+  --navbar-reader-bg:       rgba(168, 216, 192, 0.2);
+  --navbar-reader-color:    #3a8c6a;
+  --navbar-danger-color:    #e05050;
+  --navbar-danger-bg:       rgba(224, 80, 80, 0.06);
+}
+
+/* ── 暗色主题 ── */
+[data-theme="dark"] {
+  --qi-bg:           #1a1612;
+  --qi-bg-card:      #241e18;
+  --qi-bg-muted:     #1f1a14;
+
+  --qi-ink:          #f0e8dc;
+  --qi-ink-muted:    #b09a86;
+  --qi-ink-light:    #6e5a4a;
+
+  --qi-border:       rgba(255, 140, 90, 0.12);
+  --qi-shadow:       rgba(0, 0, 0, 0.3);
+
+  /* NavBar 只切变量，不写组件覆盖 */
+  --navbar-bg:            rgba(26, 22, 18, 0.92);
+  --navbar-border:        rgba(255, 140, 90, 0.12);
+  --navbar-scrolled-bg:   rgba(26, 22, 18, 0.94);
+  --navbar-scrolled-shadow: 0 2px 14px rgba(0, 0, 0, 0.35);
+  --navbar-link-color:    var(--qi-ink);
+  --navbar-title-color:   var(--qi-ink);
+  --navbar-control-bg:    rgba(36, 30, 24, 0.92);
+  --navbar-control-border: rgba(255, 140, 90, 0.24);
+  --navbar-control-color: var(--qi-ink);
+  --navbar-dropdown-bg:   var(--qi-bg-card);
+  --navbar-dropdown-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --navbar-admin-bg:      rgba(255, 140, 90, 0.14);
+  --navbar-reader-bg:     rgba(168, 216, 192, 0.16);
+  --navbar-reader-color:  #7fc4a5;
+  --navbar-danger-color:  #ff8a8a;
+  --navbar-danger-bg:     rgba(255, 138, 138, 0.08);
+  --navbar-logo-filter:   drop-shadow(0 1px 4px rgba(0, 0, 0, 0.45));
+}
+
+/* highlight.js 暗色覆盖 */
+[data-theme="dark"] .hljs {
+  background: #1e1812 !important;
+  color: #e0d0b8;
+}
+
+/* 全局重置 */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+  width: 100%;
+  min-height: 100vh;
+  background: var(--qi-bg);
+  overflow-x: hidden;
+}
+
+body {
+  width: 100%;
+  min-height: 100vh;
+  overflow-x: hidden;
+  background: var(--qi-bg);
+  color: var(--qi-ink);
+  font-family: 'Inter', 'PingFang SC', '苹方', sans-serif;
+  font-size: 16px;
+  line-height: 1.8;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  width: 100%;
+  min-height: 100vh;
+  background: var(--qi-bg);
+}
+
+main {
+  min-height: 100vh;
+  background: var(--qi-bg);
+}
+
+/* 动画关键帧 */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-10px); }
+}
+
+@keyframes scrollHint {
+  0%, 100% { opacity: 0.3; transform: translateY(0); }
+  50%       { opacity: 1;   transform: translateY(6px); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(40px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50%       { transform: scale(1.05); }
+}
+
+/* 动画工具类 */
+.anim-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.anim-fade-up {
+  animation: fadeUp 0.6s ease forwards;
+}
+
+.anim-scroll-hint {
+  animation: scrollHint 2s ease-in-out infinite;
+}
+
+/* ScrollReveal 组件样式 */
+.reveal-wrap {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.reveal-wrap.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* 代码高亮主题覆盖（暖色系） */
+.hljs {
+  background: var(--qi-bg-card) !important;
+  border-radius: 12px;
+  padding: 1.2em !important;
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  body {
+    font-size: 15px;
+  }
+}
+
+/* 无障碍：尊重用户的减少动画偏好 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
