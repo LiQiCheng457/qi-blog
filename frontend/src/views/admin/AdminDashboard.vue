@@ -12,8 +12,6 @@ import VChart from 'vue-echarts'
 use([CanvasRenderer, LineChart, BarChart, PieChart, RadarChart,
      GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, RadarComponent])
 
-import type { ActiveChatter } from '@/api/admin'
-
 import { postsApi }    from '@/api/posts'
 import { projectsApi } from '@/api/projects'
 import { adminApi, type DashboardStats } from '@/api/admin'
