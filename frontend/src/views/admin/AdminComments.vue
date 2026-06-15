@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { adminApi } from '@/api/admin'
 import type { AdminComment } from '@/api/admin'
+import { assetUrl } from '@/utils/assets'
 
 const route  = useRoute()
 const router = useRouter()
@@ -108,7 +109,7 @@ async function deleteComment(c: AdminComment) {
         <div class="card-header">
           <div class="user-block">
             <div class="user-avatar">
-              <img v-if="c.avatar" :src="c.avatar" :alt="c.username" />
+              <img v-if="c.avatar" :src="assetUrl(c.avatar)" :alt="c.username" />
               <span v-else class="avatar-fallback">{{ c.username[0] }}</span>
             </div>
             <div class="user-meta">

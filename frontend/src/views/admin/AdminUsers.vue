@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { adminApi } from '@/api/admin'
 import type { AdminUser, AdminUserUpdate } from '@/api/admin'
 import { useUserStore } from '@/stores/user'
+import { assetUrl } from '@/utils/assets'
 
 const router    = useRouter()
 const userStore = useUserStore()
@@ -125,7 +126,7 @@ function viewComments(u: AdminUser) {
         <div class="user-list">
           <div v-for="u in adminUsers" :key="u.id" class="user-row">
             <div class="user-avatar">
-              <img v-if="u.avatar" :src="u.avatar" :alt="u.username" />
+              <img v-if="u.avatar" :src="assetUrl(u.avatar)" :alt="u.username" />
               <span v-else class="avatar-fallback">{{ u.username[0] }}</span>
             </div>
             <div class="user-info">
@@ -159,7 +160,7 @@ function viewComments(u: AdminUser) {
         <div v-else class="user-list">
           <div v-for="u in regularUsers" :key="u.id" class="user-row">
             <div class="user-avatar">
-              <img v-if="u.avatar" :src="u.avatar" :alt="u.username" />
+              <img v-if="u.avatar" :src="assetUrl(u.avatar)" :alt="u.username" />
               <span v-else class="avatar-fallback">{{ u.username[0] }}</span>
             </div>
             <div class="user-info">
@@ -199,7 +200,7 @@ function viewComments(u: AdminUser) {
           <div class="modal-body">
             <div class="user-preview">
               <div class="preview-avatar">
-                <img v-if="editTarget.avatar" :src="editTarget.avatar" :alt="editTarget.username" />
+                <img v-if="editTarget.avatar" :src="assetUrl(editTarget.avatar)" :alt="editTarget.username" />
                 <span v-else class="avatar-fallback">{{ editTarget.username[0] }}</span>
               </div>
               <div>

@@ -124,7 +124,7 @@ function formatMsg(text: string): string {
       <div v-else class="user-list">
         <div v-for="u in filtered" :key="u.user_id" class="user-row">
           <div class="user-avatar">
-            <img v-if="u.avatar" :src="u.avatar" :alt="u.username" />
+            <img v-if="u.avatar" :src="assetUrl(u.avatar)" :alt="u.username" />
             <span v-else class="avatar-fallback">{{ u.username[0] }}</span>
           </div>
           <div class="user-info">
@@ -151,7 +151,7 @@ function formatMsg(text: string): string {
         <button class="back-btn" @click="backToList">← 返回</button>
         <div class="detail-user">
           <div class="user-avatar sm">
-            <img v-if="activeUser.avatar" :src="activeUser.avatar" :alt="activeUser.username" />
+            <img v-if="activeUser.avatar" :src="assetUrl(activeUser.avatar)" :alt="activeUser.username" />
             <span v-else class="avatar-fallback">{{ activeUser.username[0] }}</span>
           </div>
           <div>
@@ -186,7 +186,7 @@ function formatMsg(text: string): string {
           </div>
           <!-- user 头像 -->
           <div v-if="msg.role === 'user'" class="user-avatar sm">
-            <img v-if="activeUser.avatar" :src="activeUser.avatar" :alt="activeUser.username" />
+            <img v-if="activeUser.avatar" :src="assetUrl(activeUser.avatar)" :alt="activeUser.username" />
             <span v-else class="avatar-fallback">{{ activeUser.username[0] }}</span>
           </div>
         </div>
