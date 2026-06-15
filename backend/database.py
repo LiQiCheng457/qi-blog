@@ -28,7 +28,7 @@ async def init_db():
 async def _seed_admin():
     """如果数据库里还没有 admin，用 .env 里的配置创建一个"""
     from models import User
-    from auth import hash_password, verify_password
+    from auth import hash_password
 
     admin_username = os.getenv("ADMIN_USERNAME", "qi")
     admin_password_hash = os.getenv("ADMIN_PASSWORD_HASH", "")
@@ -44,9 +44,12 @@ async def _seed_admin():
         existing = result.scalar_one_or_none()
 
         if existing:
-            # 已有管理员，确保密码哈希同步（若 .env 改过密码）
-            if not verify_password.__module__:   # always True，防 linter 警告
-                pass
+            # 若 .env 中的密码哈希与数据库不同，同步更新
+            if existing.password_hash != admin_password_hash:
+                existing.password_hash = admin_password_hash
+                session.add(existing)
+                await session.commit()
+                print(f"[OK] 管理员密码哈希已同步更新")
             return
 
         admin = User(

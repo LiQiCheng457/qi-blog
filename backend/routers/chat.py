@@ -1,9 +1,22 @@
-from fastapi import APIRouter
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
 import httpx
 import os
 import json
+import time as _time
+import uuid
+import hmac
+import hashlib
+import base64
+import urllib.parse
+from datetime import datetime, timezone
+
+from sqlmodel import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from database import get_session, AsyncSessionLocal
+from models import ChatRecord, User
+from auth import get_current_user
 
 router = APIRouter(prefix="/api/chat", tags=["聊天"])
 
@@ -70,34 +83,143 @@ SYSTEM_PROMPT = """你是「水豚祁」，一只有自己性格的水豚，也�
 """
 
 
-class ChatMessage(BaseModel):
-    role: str
-    content: str
+def _build_system_prompt(user: User) -> str:
+    """根据用户身份在 system prompt 末尾注入当前时间和对话对象信息"""
+    from datetime import datetime, timezone, timedelta
+    cst = timezone(timedelta(hours=8))
+    now = datetime.now(cst).strftime("%Y年%m月%d日 %H:%M")
+    time_note = f"\n\n## 当前时间\n现在是北京时间 {now}，你清楚地知道今天是几号、几点。"
+
+    if user.role == "admin":
+        note = (
+            "\n\n## 当前对话对象——你的主人\n"
+            f"你正在和博主「{user.username}」本人聊天，他就是你的主人，不是普通访客。\n"
+            "对他用亲密随意的语气：叫他「主人」或者直接叫「祁」都行，可以跟他撒娇、卖萌、吐槽。\n"
+            "他问博客或技术的问题可以更直接、更详细地回答，不用过度解释背景。\n"
+            "他如果叫你干活（改代码、写文案等），嘴上可以嘟囔但还是要做。(＞﹏＜)"
+        )
+    else:
+        note = (
+            f"\n\n## 当前对话对象\n"
+            f"用户名：{user.username}（注册访客）。\n"
+            f"可以亲切地叫他「{user.username}」。如果对方自我介绍了别的称呼，记住并使用那个。"
+        )
+    return SYSTEM_PROMPT + time_note + note
+
+
+# ── 阿里云 NLS Token 缓存 ────────────────────────────────
+_nls_cache: dict = {"token": "", "expires_at": 0.0}
+
+
+def _aliyun_sign(params: dict, secret: str) -> str:
+    """阿里云 RPC 接口 HMAC-SHA1 签名"""
+    sorted_params = sorted(params.items())
+    query = "&".join(
+        urllib.parse.quote(str(k), safe="") + "=" + urllib.parse.quote(str(v), safe="")
+        for k, v in sorted_params
+    )
+    string_to_sign = "POST&%2F&" + urllib.parse.quote(query, safe="")
+    h = hmac.new(
+        (secret + "&").encode("utf-8"),
+        string_to_sign.encode("utf-8"),
+        hashlib.sha1,
+    )
+    return base64.b64encode(h.digest()).decode()
+
+
+async def _get_nls_token() -> str:
+    """获取 NLS Token。
+    优先使用 ALIYUN_NLS_TOKEN（静态 token，手动刷新）；
+    若未配置则用 AccessKeyId + AccessKeySecret 动态申请。
+    """
+    # ① 静态 Token 模式（推荐个人使用）
+    static = os.getenv("ALIYUN_NLS_TOKEN", "")
+    if static:
+        return static
+
+    # ② 动态申请模式
+    now = _time.time()
+    if _nls_cache["token"] and now < _nls_cache["expires_at"] - 300:
+        return _nls_cache["token"]
+
+    key_id = os.getenv("ALIYUN_ACCESS_KEY_ID", "")
+    key_secret = os.getenv("ALIYUN_ACCESS_KEY_SECRET", "")
+    if not key_id or not key_secret:
+        raise HTTPException(503, "阿里云 TTS 未配置：需设置 ALIYUN_NLS_TOKEN 或 ALIYUN_ACCESS_KEY_ID + SECRET")
+
+    params = {
+        "AccessKeyId": key_id,
+        "Action": "CreateToken",
+        "Format": "JSON",
+        "RegionId": "cn-shanghai",
+        "SignatureMethod": "HMAC-SHA1",
+        "SignatureNonce": str(uuid.uuid4()),
+        "SignatureVersion": "1.0",
+        "Timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "Version": "2019-02-28",
+    }
+    params["Signature"] = _aliyun_sign(params, key_secret)
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.post(
+            "https://nls-meta.cn-shanghai.aliyuncs.com/",
+            data=params,
+        )
+    data = resp.json()
+    if "Token" not in data:
+        raise HTTPException(503, f"NLS Token 获取失败：{data}")
+
+    _nls_cache["token"] = data["Token"]["Id"]
+    _nls_cache["expires_at"] = float(data["Token"]["ExpireTime"])
+    return _nls_cache["token"]
 
 
 class ChatRequest(BaseModel):
-    messages: list[ChatMessage]
+    message: str   # 只需发送本轮新消息，历史由后端从数据库加载
+
+class TTSRequest(BaseModel):
+    text: str
+    voice: str = "kenny"   # 温暖男声（与阿里云项目配置一致）
 
 
 @router.post("")
-async def chat(req: ChatRequest):
+async def chat(
+    req: ChatRequest,
+    current: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    if not req.message.strip():
+        raise HTTPException(400, "消息不能为空")
+
+    # 1. 持久化用户新消息
+    session.add(ChatRecord(user_id=current.id, role="user", content=req.message))
+    await session.commit()
+
+    # 2. 从数据库加载该用户完整历史（包括刚存入的这条），作为 DeepSeek 上下文
+    result = await session.execute(
+        select(ChatRecord)
+        .where(ChatRecord.user_id == current.id)
+        .order_by(ChatRecord.created_at.asc())
+        .limit(60)
+    )
+    history = result.scalars().all()
+
     api_key = os.getenv("DEEPSEEK_API_KEY", "")
-
-    # 最多取最近 60 条，避免超出上下文限制
-    messages = req.messages[-60:] if len(req.messages) > 60 else req.messages
-
     payload = {
         "model": "deepseek-chat",
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            *[{"role": m.role, "content": m.content} for m in messages],
+            {"role": "system", "content": _build_system_prompt(current)},
+            *[{"role": r.role, "content": r.content} for r in history],
         ],
         "stream": True,
         "max_tokens": 600,
         "temperature": 0.85,
     }
 
+    user_id = current.id
+
     async def generate():
+        collected: list[str] = []
         try:
             async with httpx.AsyncClient(timeout=90) as client:
                 async with client.stream(
@@ -118,14 +240,100 @@ async def chat(req: ChatRequest):
                                 obj = json.loads(data)
                                 delta = obj["choices"][0]["delta"].get("content", "")
                                 if delta:
+                                    collected.append(delta)
                                     yield delta
                             except Exception:
                                 pass
         except Exception as e:
-            yield f"\n\n(・_・;) 呃，连接出了点问题……{str(e)[:40]}"
+            err = f"\n\n(・_・;) 呃，连接出了点问题……{str(e)[:40]}"
+            collected.append(err)
+            yield err
+        finally:
+            if collected:
+                async with AsyncSessionLocal() as s:
+                    s.add(ChatRecord(
+                        user_id=user_id,
+                        role="assistant",
+                        content="".join(collected),
+                    ))
+                    await s.commit()
 
     return StreamingResponse(
         generate(),
         media_type="text/plain; charset=utf-8",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.get("/history")
+async def get_history(
+    current: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """获取当前用户的聊天历史（最近 200 条）"""
+    result = await session.execute(
+        select(ChatRecord)
+        .where(ChatRecord.user_id == current.id)
+        .order_by(ChatRecord.created_at.asc())
+        .limit(200)
+    )
+    records = result.scalars().all()
+    return [{"role": r.role, "content": r.content} for r in records]
+
+
+@router.delete("/history")
+async def clear_history(
+    current: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """清空当前用户的聊天历史"""
+    result = await session.execute(
+        select(ChatRecord).where(ChatRecord.user_id == current.id)
+    )
+    for record in result.scalars().all():
+        await session.delete(record)
+    await session.commit()
+    return {"message": "已清空"}
+
+
+@router.post("/tts")
+async def text_to_speech(
+    req: TTSRequest,
+    current: User = Depends(get_current_user),
+):
+    """将文本转为语音（阿里云 NLS，返回 mp3）"""
+    appkey = os.getenv("ALIYUN_NLS_APPKEY", "")
+    if not appkey:
+        raise HTTPException(503, "阿里云 TTS 未配置：缺少 ALIYUN_NLS_APPKEY")
+
+    token = await _get_nls_token()
+
+    payload = {
+        "appkey": appkey,
+        "token": token,
+        "text": req.text[:500],   # 短文本合成上限
+        "format": "mp3",
+        "sample_rate": 16000,
+        "voice": req.voice,
+        "volume": 50,
+        "speech_rate": 0,
+        "pitch_rate": 0,
+    }
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            "https://nls-gateway-cn-shanghai.aliyuncs.com/stream/v1/tts",
+            headers={
+                "X-NLS-Token": token,
+                "Content-Type": "application/json",
+            },
+            json=payload,
+        )
+
+    if "audio" in resp.headers.get("Content-Type", ""):
+        return Response(
+            content=resp.content,
+            media_type="audio/mpeg",
+            headers={"Cache-Control": "no-cache"},
+        )
+    raise HTTPException(500, f"TTS 合成失败：{resp.text[:200]}")

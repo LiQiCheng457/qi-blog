@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useThemeStore } from '@/stores/theme'
+import { assetUrl } from '@/utils/assets'
 import UserAuthModal from './UserAuthModal.vue'
 
 const scrolled     = ref(false)
@@ -62,6 +63,7 @@ function navigate(path: string) {
 
 /** 头像首字母（有 avatar URL 时用图片，否则用字母） */
 const initials = () => (user.profile?.username?.[0] ?? '?').toUpperCase()
+const qiSmall = assetUrl('/animations/qi_small.webp')
 </script>
 
 <template>
@@ -70,8 +72,8 @@ const initials = () => (user.profile?.username?.[0] ?? '?').toUpperCase()
       <!-- Logo -->
       <RouterLink to="/" class="navbar-logo" @click="menuOpen = false">
         <picture>
-          <source srcset="/animations/qi_small.webp" type="image/webp" />
-          <img src="/animations/qi_small.webp" alt="祁" class="logo-img" />
+          <source :srcset="qiSmall" type="image/webp" />
+          <img :src="qiSmall" alt="祁" class="logo-img" />
         </picture>
         <span class="navbar-title">起风了</span>
       </RouterLink>
@@ -109,7 +111,7 @@ const initials = () => (user.profile?.username?.[0] ?? '?').toUpperCase()
             <!-- 自定义头像 -->
             <img
               v-if="user.profile?.avatar"
-              :src="user.profile.avatar"
+              :src="assetUrl(user.profile.avatar)"
               class="chip-avatar"
               :alt="user.profile.username"
             />
@@ -161,8 +163,8 @@ const initials = () => (user.profile?.username?.[0] ?? '?').toUpperCase()
       <div v-if="menuOpen" class="navbar-mobile-menu">
         <button class="mobile-close" @click="menuOpen = false">
           <picture>
-            <source srcset="/animations/qi_small.webp" type="image/webp" />
-            <img src="/animations/qi_small.webp" alt="关闭" />
+            <source :srcset="qiSmall" type="image/webp" />
+            <img :src="qiSmall" alt="关闭" />
           </picture>
         </button>
         <nav>

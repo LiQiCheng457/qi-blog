@@ -1,16 +1,18 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { use }          from 'echarts/core'
-import { CanvasRenderer } from 'echarts/renderers'
-import { LineChart, BarChart, PieChart } from 'echarts/charts'
+import { use }           from 'echarts/core'
+import { CanvasRenderer }  from 'echarts/renderers'
+import { LineChart, BarChart, PieChart, RadarChart } from 'echarts/charts'
 import {
   GridComponent, TooltipComponent, LegendComponent,
-  DataZoomComponent,
+  DataZoomComponent, RadarComponent,
 } from 'echarts/components'
 import VChart from 'vue-echarts'
 
-use([CanvasRenderer, LineChart, BarChart, PieChart,
-     GridComponent, TooltipComponent, LegendComponent, DataZoomComponent])
+use([CanvasRenderer, LineChart, BarChart, PieChart, RadarChart,
+     GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, RadarComponent])
+
+import type { ActiveChatter } from '@/api/admin'
 
 import { postsApi }    from '@/api/posts'
 import { projectsApi } from '@/api/projects'
@@ -152,74 +154,109 @@ const commentLineOpt = computed(() => {
   }
 })
 
-// ── 饼图：发布 vs 草稿 ────────────────────────────────────────────
-const pieOpt = computed(() => {
-  const pub   = stats.value?.pubCount  ?? 0
-  const total = stats.value?.postCount ?? 0
-  const draft = total - pub
+// ── 折线面积图：AI 对话趋势 ───────────────────────────────────────
+const chatLineOpt = computed(() => {
+  const months = (stats.value?.monthlyChats ?? []).map(d => d.month)
+  const counts  = (stats.value?.monthlyChats ?? []).map(d => d.count)
+  return {
+    backgroundColor: 'transparent',
+    grid: { top: 28, right: 12, bottom: 28, left: 32, containLabel: true },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: 'rgba(36,30,24,.9)',
+      borderColor: 'rgba(201,126,240,.25)',
+      textStyle: { color: '#f0e8dc', fontSize: 12 },
+      formatter: (p: any) => `${p[0].name}<br/>对话 <b>${p[0].value}</b> 条`,
+    },
+    xAxis: {
+      type: 'category', data: months,
+      axisLine: { lineStyle: { color: axisColor.value } },
+      axisTick: { show: false },
+      axisLabel: { color: labelColor.value, fontSize: 11 },
+      splitLine: { show: false },
+    },
+    yAxis: {
+      type: 'value', minInterval: 1,
+      axisLine: { show: false }, axisTick: { show: false },
+      axisLabel: { color: labelColor.value, fontSize: 11 },
+      splitLine: { lineStyle: { color: axisColor.value, opacity: .35, type: 'dashed' } },
+    },
+    series: [{
+      type: 'line', data: counts, smooth: true,
+      symbol: 'circle', symbolSize: 7,
+      itemStyle: { color: '#c97ef0', borderColor: '#fff', borderWidth: 2 },
+      lineStyle: { color: '#c97ef0', width: 2.5 },
+      areaStyle: {
+        color: {
+          type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [
+            { offset: 0, color: 'rgba(201,126,240,.35)' },
+            { offset: 1, color: 'rgba(201,126,240,.02)' },
+          ],
+        },
+      },
+      label: { show: true, position: 'top', color: '#c97ef0', fontSize: 11, fontWeight: 600,
+               formatter: (p: any) => p.value > 0 ? p.value : '' },
+    }],
+  }
+})
+
+// ── Top 5 阅读量：HTML 进度条（替换 ECharts 横柱图）─────────────
+const TOP_COLORS = ['#ff8c5a', '#ffb347', '#6bb5a0', '#82b1ff', '#c97ef0']
+
+function topBarPct(views: number): number {
+  const max = Math.max(...(stats.value?.topPosts ?? []).map(p => p.views), 1)
+  return Math.round(views / max * 100)
+}
+
+// ── 雷达图：博客活力 ──────────────────────────────────────────────
+const radarOpt = computed(() => {
+  const s = stats.value
+  const vals = [
+    Math.min((s?.postCount    ?? 0) / 20  * 100, 100),
+    Math.min((s?.viewTotal    ?? 0) / 500 * 100, 100),
+    Math.min((s?.commentCount ?? 0) / 50  * 100, 100),
+    Math.min((s?.userCount    ?? 0) / 50  * 100, 100),
+    Math.min(projects.value.length  / 10  * 100, 100),
+    Math.min((s?.chatMsgCount ?? 0) / 100 * 100, 100),
+  ]
+  const nameColor = labelColor.value
   return {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'item',
       backgroundColor: 'rgba(36,30,24,.9)',
-      borderColor: 'rgba(255,140,90,.25)',
+      borderColor: 'rgba(255,140,90,.2)',
       textStyle: { color: '#f0e8dc', fontSize: 12 },
     },
-    legend: {
-      bottom: 4, left: 'center',
-      textStyle: { color: labelColor.value, fontSize: 11 },
-      itemWidth: 10, itemHeight: 10,
-    },
-    series: [{
-      type: 'pie', radius: ['48%', '72%'],
-      center: ['50%', '44%'],
-      avoidLabelOverlap: false,
-      label: {
-        show: true, position: 'center',
-        formatter: () => `${total ? Math.round(pub / total * 100) : 0}%`,
-        fontSize: 20, fontWeight: 800, color: '#ff8c5a',
-      },
-      itemStyle: { borderRadius: 6, borderColor: 'transparent', borderWidth: 2 },
-      data: [
-        { value: pub,   name: `已发布 ${pub}`,   itemStyle: { color: '#ff8c5a' } },
-        { value: Math.max(draft, 0), name: `草稿 ${draft}`,
-          itemStyle: { color: theme.isDark ? '#3a2e26' : '#e8ddd4' } },
+    radar: {
+      indicator: [
+        { name: '文章', max: 100 },
+        { name: '阅读量', max: 100 },
+        { name: '评论', max: 100 },
+        { name: '用户', max: 100 },
+        { name: '项目', max: 100 },
+        { name: 'AI对话', max: 100 },
       ],
-    }],
-  }
-})
-
-// ── 横向柱图：Top 5 阅读量 ────────────────────────────────────────
-const TOP_COLORS = ['#ff8c5a', '#ffb347', '#6bb5a0', '#82b1ff', '#c97ef0']
-const topBarOpt  = computed(() => {
-  const tp = [...(stats.value?.topPosts ?? [])].reverse()
-  return {
-    backgroundColor: 'transparent',
-    grid: { top: 8, right: 60, bottom: 8, left: 8, containLabel: true },
-    tooltip: {
-      trigger: 'axis', axisPointer: { type: 'none' },
-      backgroundColor: 'rgba(36,30,24,.9)',
-      borderColor: 'rgba(255,140,90,.25)',
-      textStyle: { color: '#f0e8dc', fontSize: 12 },
-      formatter: (p: any) => `${p[0].name}<br/>阅读量 <b>${p[0].value}</b>`,
-    },
-    xAxis: { type: 'value', show: false },
-    yAxis: {
-      type: 'category',
-      data: tp.map(p => p.title.length > 14 ? p.title.slice(0, 14) + '…' : p.title),
-      axisLine: { show: false }, axisTick: { show: false },
-      axisLabel: { color: labelColor.value, fontSize: 12 },
+      radius: '68%',
+      center: ['50%', '52%'],
+      splitNumber: 4,
+      nameGap: 8,
+      name: { color: nameColor, fontSize: 12 },
+      axisLine: { lineStyle: { color: axisColor.value } },
+      splitLine: { lineStyle: { color: axisColor.value, opacity: .5 } },
+      splitArea: { show: false },
     },
     series: [{
-      type: 'bar', barMaxWidth: 16, barMinHeight: 4,
-      data: tp.map((p, i) => ({
-        value: p.views,
-        itemStyle: { color: TOP_COLORS[tp.length - 1 - i], borderRadius: [0, 8, 8, 0] },
-      })),
-      label: {
-        show: true, position: 'right',
-        color: labelColor.value, fontSize: 11,
-      },
+      type: 'radar',
+      data: [{
+        value: vals,
+        name: '活力指数',
+        symbol: 'circle', symbolSize: 5,
+        itemStyle: { color: '#ff8c5a' },
+        lineStyle: { color: '#ff8c5a', width: 2 },
+        areaStyle: { color: 'rgba(255,140,90,.18)' },
+      }],
     }],
   }
 })
@@ -253,7 +290,7 @@ const topBarOpt  = computed(() => {
           <div class="sc-icon">📝</div>
           <div class="sc-num">{{ stats?.postCount ?? posts.length }}</div>
           <div class="sc-label">篇文章</div>
-          <div class="sc-sub">已发布 {{ stats?.pubCount ?? posts.length }}</div>
+          <div class="sc-sub">已发布 {{ stats?.pubCount ?? 0 }} · 草稿 {{ (stats?.postCount ?? 0) - (stats?.pubCount ?? 0) }}</div>
         </div>
         <div class="stat-card" style="--c1:#5b8ef0;--c2:#82b1ff">
           <div class="sc-icon">👁️</div>
@@ -279,18 +316,33 @@ const topBarOpt  = computed(() => {
           <div class="sc-label">个项目</div>
           <div class="sc-sub">作品收录</div>
         </div>
+        <div class="stat-card" style="--c1:#a78bfa;--c2:#c4b5fd">
+          <div class="sc-icon">🤖</div>
+          <div class="sc-num">{{ formatNum(stats?.chatMsgCount ?? 0) }}</div>
+          <div class="sc-label">条 AI 对话</div>
+          <div class="sc-sub">{{ stats?.chatUserCount ?? 0 }} 人曾聊天</div>
+        </div>
       </div>
 
-      <!-- ── 图表行：折线 + 饼图 ── -->
-      <div class="charts-row">
+      <!-- ── 第一图表行：文章趋势(宽) + 博客雷达 ── -->
+      <div class="charts-wide">
         <div class="chart-card">
           <div class="chart-hd">
             <span class="chart-title">文章发布趋势</span>
             <span class="chart-badge">近 6 个月</span>
           </div>
-          <VChart :option="postLineOpt" class="echart" autoresize />
+          <VChart :option="postLineOpt" class="echart echart--tall" autoresize />
         </div>
+        <div class="chart-card chart-card--radar">
+          <div class="chart-hd">
+            <span class="chart-title">博客活力雷达</span>
+          </div>
+          <VChart :option="radarOpt" class="echart echart--radar" autoresize />
+        </div>
+      </div>
 
+      <!-- ── 第二图表行：评论 + AI对话 + Top5阅读(HTML) ── -->
+      <div class="charts-row">
         <div class="chart-card">
           <div class="chart-hd">
             <span class="chart-title">评论活跃度</span>
@@ -299,44 +351,76 @@ const topBarOpt  = computed(() => {
           <VChart :option="commentLineOpt" class="echart" autoresize />
         </div>
 
-        <div class="chart-card chart-card--pie">
+        <div class="chart-card">
           <div class="chart-hd">
-            <span class="chart-title">发布率</span>
+            <span class="chart-title">AI 对话趋势</span>
+            <span class="chart-badge" style="background:rgba(201,126,240,.12);color:#c97ef0">近 6 个月</span>
           </div>
-          <VChart :option="pieOpt" class="echart echart--pie" autoresize />
+          <VChart :option="chatLineOpt" class="echart" autoresize />
+        </div>
+
+        <!-- Top 5 阅读量：HTML 进度条 -->
+        <div class="chart-card">
+          <div class="chart-hd">
+            <span class="chart-title">🔥 阅读量排行</span>
+            <span class="panel-sub">Top 5</span>
+          </div>
+          <div v-if="stats?.topPosts?.length" class="top-list">
+            <div v-for="(p, i) in stats.topPosts" :key="p.title" class="top-item">
+              <div class="top-meta">
+                <span class="top-rank" :style="{ color: TOP_COLORS[i] }">{{ i + 1 }}</span>
+                <span class="top-title">{{ p.title.length > 16 ? p.title.slice(0, 16) + '…' : p.title }}</span>
+                <span class="top-views">{{ p.views }}</span>
+              </div>
+              <div class="top-bar-track">
+                <div class="top-bar-fill"
+                  :style="{ width: topBarPct(p.views) + '%', background: TOP_COLORS[i] }" />
+              </div>
+            </div>
+          </div>
+          <div v-else class="panel-empty">暂无阅读数据</div>
         </div>
       </div>
 
-      <!-- ── Top 5 阅读量（横向柱图）── -->
-      <div class="panel">
-        <div class="panel-hd">
-          <span class="panel-title">🔥 阅读量排行</span>
-          <span class="panel-sub">Top 5 文章</span>
-        </div>
-        <VChart v-if="stats?.topPosts?.length" :option="topBarOpt"
-          class="echart echart--bar" autoresize />
-        <div v-else class="panel-empty">暂无阅读数据</div>
-      </div>
-
-      <!-- ── 最近文章 ── -->
-      <div class="panel">
-        <div class="panel-hd">
-          <span class="panel-title">📋 最近文章</span>
-          <RouterLink to="/admin/posts" class="panel-link">查看全部 →</RouterLink>
-        </div>
-        <div class="recent-list">
-          <div v-for="post in posts.slice(0, 5)" :key="post.slug" class="recent-row">
-            <div class="rr-left">
-              <span class="rr-title">{{ post.title }}</span>
-              <span class="rr-date">{{ formatDate(post.createdAt) }}</span>
+      <!-- ── 底部双列：最近文章 + 活跃用户 ── -->
+      <div class="bottom-row">
+        <div class="panel">
+          <div class="panel-hd">
+            <span class="panel-title">📋 最近文章</span>
+            <RouterLink to="/admin/posts" class="panel-link">查看全部 →</RouterLink>
+          </div>
+          <div class="recent-list">
+            <div v-for="post in posts.slice(0, 5)" :key="post.slug" class="recent-row">
+              <div class="rr-left">
+                <span class="rr-title">{{ post.title }}</span>
+                <span class="rr-date">{{ formatDate(post.createdAt) }}</span>
+              </div>
+              <span class="rr-views">👁 {{ post.viewCount }}</span>
+              <div class="rr-actions">
+                <RouterLink :to="`/admin/posts/${post.slug}/edit`" class="rr-btn">编辑</RouterLink>
+                <RouterLink :to="`/blog/${post.slug}`" target="_blank" class="rr-btn rr-btn--view">查看</RouterLink>
+              </div>
             </div>
-            <span class="rr-views">👁 {{ post.viewCount }}</span>
-            <div class="rr-actions">
-              <RouterLink :to="`/admin/posts/${post.slug}/edit`" class="rr-btn">编辑</RouterLink>
-              <RouterLink :to="`/blog/${post.slug}`" target="_blank" class="rr-btn rr-btn--view">查看</RouterLink>
+            <div v-if="posts.length === 0" class="panel-empty">还没有文章，去写第一篇吧！</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-hd">
+            <span class="panel-title">🤖 AI 对话活跃用户</span>
+            <RouterLink to="/admin/chat" class="panel-link">查看全部 →</RouterLink>
+          </div>
+          <div v-if="!stats?.activeChatters?.length" class="panel-empty">还没有人和小 AI 聊过~</div>
+          <div v-else class="chatter-list">
+            <div v-for="c in stats.activeChatters" :key="c.user_id" class="chatter-row">
+              <div class="cr-avatar">{{ c.username.charAt(0).toUpperCase() }}</div>
+              <div class="cr-info">
+                <span class="cr-name">{{ c.username }}</span>
+                <span class="cr-sub">最近活跃：{{ c.last_at ? formatDate(c.last_at) : '—' }}</span>
+              </div>
+              <span class="cr-badge">💬 {{ c.msg_count }} 条</span>
             </div>
           </div>
-          <div v-if="posts.length === 0" class="panel-empty">还没有文章，去写第一篇吧！</div>
         </div>
       </div>
 
@@ -363,7 +447,7 @@ const topBarOpt  = computed(() => {
 @keyframes shimmer { 0%{background-position:200% 0}100%{background-position:-200% 0} }
 
 /* 统计卡片 */
-.stat-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:1rem; }
+.stat-grid { display:grid; grid-template-columns:repeat(6,1fr); gap:1rem; }
 .stat-card { position:relative; overflow:hidden; background:var(--qi-bg-card); border:1px solid var(--qi-border); border-radius:16px; padding:1.4rem 1.25rem 1.1rem; transition:transform .2s,box-shadow .2s; }
 .stat-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; background:linear-gradient(90deg,var(--c1),var(--c2)); border-radius:16px 16px 0 0; }
 .stat-card:hover { transform:translateY(-3px); box-shadow:0 8px 24px var(--qi-shadow); }
@@ -373,17 +457,39 @@ const topBarOpt  = computed(() => {
 .sc-sub { font-size:11px; color:var(--qi-ink-light); margin-top:.2rem; }
 
 /* 图表行 */
-.charts-row { display:grid; grid-template-columns:1fr 1fr 220px; gap:1rem; }
+.charts-wide { display:grid; grid-template-columns:2fr 1fr; gap:1rem; }
+.charts-row  { display:grid; grid-template-columns:repeat(3,1fr); gap:1rem; }
+.bottom-row  { display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
+
 .chart-card { background:var(--qi-bg-card); border:1px solid var(--qi-border); border-radius:16px; padding:1.25rem; }
-.chart-card--pie { display:flex; flex-direction:column; }
+.chart-card--radar { display:flex; flex-direction:column; }
 .chart-hd { display:flex; align-items:center; gap:.6rem; margin-bottom:.5rem; }
 .chart-title { font-size:13px; font-weight:600; color:var(--qi-ink); }
 .chart-badge { font-size:11px; padding:2px 8px; border-radius:999px; background:rgba(255,140,90,.1); color:var(--qi-primary); }
 
 /* ECharts 容器 */
-.echart { width:100%; height:180px; }
-.echart--pie { height:200px; flex:1; }
-.echart--bar { width:100%; height:160px; }
+.echart        { width:100%; height:180px; }
+.echart--tall  { width:100%; height:220px; }
+.echart--radar { width:100%; flex:1; min-height:200px; }
+
+/* Top 5 阅读量进度条 */
+.top-list { display:flex; flex-direction:column; gap:.65rem; padding-top:.25rem; }
+.top-item {}
+.top-meta { display:flex; align-items:baseline; gap:.5rem; margin-bottom:.3rem; }
+.top-rank { font-size:13px; font-weight:800; min-width:14px; }
+.top-title { flex:1; font-size:12px; color:var(--qi-ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.top-views { font-size:11px; color:var(--qi-ink-light); flex-shrink:0; }
+.top-bar-track { height:6px; border-radius:999px; background:var(--qi-bg-muted); overflow:hidden; }
+.top-bar-fill  { height:100%; border-radius:999px; transition:width .6s ease; }
+
+/* AI 对话活跃用户 */
+.chatter-list { display:flex; flex-direction:column; gap:.5rem; }
+.chatter-row { display:flex; align-items:center; gap:.85rem; padding:.6rem .75rem; border-radius:10px; background:var(--qi-bg-muted); }
+.cr-avatar { width:34px; height:34px; border-radius:50%; background:linear-gradient(135deg,#a78bfa,#c4b5fd); display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700; color:#fff; flex-shrink:0; }
+.cr-info { flex:1; min-width:0; }
+.cr-name { display:block; font-size:14px; font-weight:500; color:var(--qi-ink); }
+.cr-sub { font-size:11px; color:var(--qi-ink-light); }
+.cr-badge { font-size:12px; color:var(--qi-ink-muted); flex-shrink:0; white-space:nowrap; }
 
 /* 通用面板 */
 .panel { background:var(--qi-bg-card); border:1px solid var(--qi-border); border-radius:16px; padding:1.25rem; }
@@ -407,18 +513,20 @@ const topBarOpt  = computed(() => {
 .rr-btn:hover { border-color:var(--qi-primary); color:var(--qi-primary); }
 .rr-btn--view { color:var(--qi-ink-light); }
 
+@media (max-width:1300px) {
+  .stat-grid { grid-template-columns:repeat(3,1fr); }
+}
 @media (max-width:1100px) {
+  .charts-wide { grid-template-columns:1fr; }
+  .echart--radar { min-height:220px; }
   .charts-row { grid-template-columns:1fr 1fr; }
-  .chart-card--pie { grid-column:1 / -1; flex-direction:row; align-items:center; gap:1rem; }
-  .echart--pie { height:160px; }
 }
 @media (max-width:900px) {
-  .stat-grid { grid-template-columns:repeat(3,1fr); }
-  .charts-row { grid-template-columns:1fr; }
-  .chart-card--pie { grid-column:1; flex-direction:column; }
+  .bottom-row { grid-template-columns:1fr; }
 }
-@media (max-width:600px) {
-  .stat-grid { grid-template-columns:1fr 1fr; }
+@media (max-width:768px) {
+  .charts-row { grid-template-columns:1fr; }
+  .stat-grid { grid-template-columns:repeat(2,1fr); }
   .welcome-banner { flex-direction:column; gap:1rem; align-items:flex-start; }
 }
 </style>

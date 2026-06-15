@@ -44,16 +44,18 @@ const stateAlias: Partial<Record<MascotState, MascotState>> = {
   singing: 'wave',
 }
 
+const base = import.meta.env.BASE_URL
+
 function webpSrc(state: MascotState) {
   const s = stateAlias[state] ?? state
-  return `/animations/qi_${s}_${props.size}.webp`
+  return `${base}animations/qi_${s}_${props.size}.webp`
 }
 
 // GIF 仅 wake_medium 有对应尺寸，其余 fallback 到 small_transp
 function gifSrc(state: MascotState) {
   const s = stateAlias[state] ?? state
-  if (s === 'wake') return `/animations/qi_wake_medium.gif`
-  return `/animations/qi_${s}_small_transp.gif`
+  if (s === 'wake') return `${base}animations/qi_wake_medium.gif`
+  return `${base}animations/qi_${s}_small_transp.gif`
 }
 </script>
 

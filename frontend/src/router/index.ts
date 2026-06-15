@@ -1,5 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { ref } from 'vue'
 import { useUserStore } from '@/stores/user'
+
+export const isPageLoading = ref(false)
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -34,6 +37,10 @@ const router = createRouter({
         { path: 'posts/:slug/edit', name: 'admin-post-edit', component: () => import('@/views/admin/AdminPostEdit.vue') },
         { path: 'projects', name: 'admin-projects', component: () => import('@/views/admin/AdminProjects.vue') },
         { path: 'photos',   name: 'admin-photos',   component: () => import('@/views/admin/AdminPhotos.vue') },
+        { path: 'exes',     name: 'admin-exes',     component: () => import('@/views/admin/AdminExes.vue') },
+        { path: 'users',    name: 'admin-users',    component: () => import('@/views/admin/AdminUsers.vue') },
+        { path: 'comments', name: 'admin-comments', component: () => import('@/views/admin/AdminComments.vue') },
+        { path: 'chat',     name: 'admin-chat',     component: () => import('@/views/admin/AdminChat.vue') },
       ],
     },
 
@@ -46,22 +53,27 @@ const router = createRouter({
   },
 })
 
+// ── 页面加载动画守卫（在此注册，避免 HMR 重复累积） ──────
+let loadingTimer: ReturnType<typeof setTimeout> | null = null
+
 router.beforeEach((to) => {
   const user = useUserStore()
 
   if (to.meta.requiresAdmin) {
-    if (!user.isLoggedIn) {
-      // 未登录：回首页，弹登录框由页面自行处理
-      return { path: '/', query: { authRequired: '1' } }
-    }
-    if (!user.isAdmin) {
-      return { path: '/' }
-    }
+    if (!user.isLoggedIn) return { path: '/', query: { authRequired: '1' } }
+    if (!user.isAdmin)    return { path: '/' }
   }
-
   if (to.meta.requiresAuth && !user.isLoggedIn) {
     return { path: '/', query: { authRequired: '1' } }
   }
+
+  // 200ms 防抖，快速跳转不显示遮罩
+  loadingTimer = setTimeout(() => { isPageLoading.value = true }, 200)
+})
+
+router.afterEach(() => {
+  if (loadingTimer) { clearTimeout(loadingTimer); loadingTimer = null }
+  isPageLoading.value = false
 })
 
 export default router

@@ -30,6 +30,7 @@ class Project(SQLModel, table=True):
     category: str
     github: Optional[str] = None
     url: Optional[str] = None
+    download: Optional[str] = None
     cover: Optional[str] = None
     featured: bool = Field(default=False)
     status: str = Field(default="active")
@@ -69,6 +70,15 @@ class Comment(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class ChatRecord(SQLModel, table=True):
+    __tablename__ = "chat_messages"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="users.id", index=True)
+    role: str                                          # "user" | "assistant"
+    content: str = Field(sa_column=Column(Text))
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 # ── Pydantic 响应 / 请求模型 ─────────────────────────────────────
 
 class PostRead(SQLModel):
@@ -88,19 +98,21 @@ class PostUpdate(SQLModel):
 
 class ProjectRead(SQLModel):
     id: int; project_id: str; name: str; description: str; tech_stack: str
-    category: str; github: Optional[str]; url: Optional[str]; cover: Optional[str]
+    category: str; github: Optional[str]; url: Optional[str]; download: Optional[str]; cover: Optional[str]
     featured: bool; status: str; created_at: datetime
 
 class ProjectCreate(SQLModel):
     project_id: str; name: str; description: str; tech_stack: str = ""
     category: str; github: Optional[str] = None; url: Optional[str] = None
-    cover: Optional[str] = None; featured: bool = False; status: str = "active"
+    download: Optional[str] = None; cover: Optional[str] = None
+    featured: bool = False; status: str = "active"
 
 class ProjectUpdate(SQLModel):
     name: Optional[str] = None; description: Optional[str] = None
     tech_stack: Optional[str] = None; category: Optional[str] = None
     github: Optional[str] = None; url: Optional[str] = None
-    cover: Optional[str] = None; featured: Optional[bool] = None; status: Optional[str] = None
+    download: Optional[str] = None; cover: Optional[str] = None
+    featured: Optional[bool] = None; status: Optional[str] = None
 
 
 class UserRead(SQLModel):
@@ -118,6 +130,12 @@ class UserUpdate(SQLModel):
     username: Optional[str] = None
     bio: Optional[str] = None
     avatar: Optional[str] = None
+
+class AdminUserUpdate(SQLModel):
+    username: Optional[str] = None
+    email: Optional[str] = None
+    role: Optional[str] = None
+    bio: Optional[str] = None
 
 
 class CommentRead(SQLModel):

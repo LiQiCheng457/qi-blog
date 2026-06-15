@@ -13,8 +13,6 @@ const categoryLabel: Record<string, string> = {
   前端: '前端', 后端: '后端', 全栈: '全栈', 设计: '设计', 工具: '工具',
   'QT应用': 'QT 应用',
 }
-
-const isDownload = (link?: string) => !!link && link.endsWith('.zip')
 </script>
 
 <template>
@@ -43,14 +41,14 @@ const isDownload = (link?: string) => !!link && link.endsWith('.zip')
 
       <div class="project-links">
         <a
-          v-if="project.link && !isDownload(project.link)"
+          v-if="project.link"
           :href="project.link"
           class="project-btn project-btn--primary"
           target="_blank"
         >查看 →</a>
         <a
-          v-if="isDownload(project.link)"
-          :href="project.link"
+          v-if="project.download"
+          :href="project.download"
           class="project-btn project-btn--download"
           download
         >⬇ 下载程序</a>

@@ -43,7 +43,7 @@ async def update_project(
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404, detail="项目不存在")
-    for key, value in data.model_dump(exclude_none=True).items():
+    for key, value in data.model_dump(exclude_unset=True).items():
         setattr(project, key, value)
     session.add(project)
     await session.commit()

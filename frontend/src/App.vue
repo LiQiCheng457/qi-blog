@@ -5,20 +5,20 @@ import NavBar from '@/components/NavBar.vue'
 import QiMascot from '@/components/QiMascot.vue'
 import BackToTop from '@/components/BackToTop.vue'
 import ChatWidget from '@/components/ChatWidget.vue'
+import LoadingOverlay from '@/components/LoadingOverlay.vue'
 import { useUserStore } from '@/stores/user'
+import { isPageLoading } from '@/router'
 
 const userStore = useUserStore()
-const route = useRoute()
+const route   = useRoute()
 const isAdmin = computed(() => route.path.startsWith('/admin'))
 
-const showChat = ref(false)
+const showChat   = ref(false)
 const showBubble = ref(false)
 
 onMounted(() => {
   userStore.init()
-  // 2 秒后弹出气泡邀请
   setTimeout(() => { showBubble.value = true }, 2000)
-  // 5 秒后自动收起
   setTimeout(() => { showBubble.value = false }, 7000)
 })
 
@@ -39,6 +39,8 @@ function toggleChat() {
       </Transition>
     </RouterView>
   </main>
+
+  <LoadingOverlay :show="isPageLoading" />
 
   <template v-if="!isAdmin">
     <!-- 水豚聊天触发器 -->

@@ -2,6 +2,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { api } from '@/api/client'
+import { assetUrl } from '@/utils/assets'
 
 const avatarOptions = [
   { label: '专注敲代码', value: '/avatars/qi-avatar-coding.png' },
@@ -30,6 +31,7 @@ const profileEmail = computed(() => user.profile?.email ?? '')
 const selectedAvatar = computed(() => (
   allowedAvatars.has(form.avatar) ? form.avatar : avatarOptions[0].value
 ))
+const selectedAvatarSrc = computed(() => assetUrl(selectedAvatar.value))
 
 watch(
   () => user.profile,
@@ -96,7 +98,7 @@ async function changePassword() {
       <header class="profile-header">
         <div class="profile-identity">
           <div class="avatar-stage">
-            <img :src="selectedAvatar" :alt="`${profileName} 的头像`" class="avatar-main" />
+            <img :src="selectedAvatarSrc" :alt="`${profileName} 的头像`" class="avatar-main" />
           </div>
           <div class="identity-copy">
             <span class="role-pill" :class="user.isAdmin ? 'admin' : 'reader'">{{ roleLabel }}</span>
@@ -131,7 +133,7 @@ async function changePassword() {
                 :aria-checked="selectedAvatar === option.value"
                 @click="selectAvatar(option.value)"
               >
-                <img :src="option.value" :alt="option.label" />
+                <img :src="assetUrl(option.value)" :alt="option.label" />
                 <span>{{ option.label }}</span>
               </button>
             </div>

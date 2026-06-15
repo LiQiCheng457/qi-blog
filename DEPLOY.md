@@ -34,7 +34,6 @@ mkdir -p /opt/qi-blog
 # 克隆后端代码
 cd /opt/qi-blog
 git clone <你的仓库地址> .
-# 或 git clone <url> backend/  视仓库结构而定
 
 # 安装后端依赖（使用 conda qi-blog 环境）
 conda activate qi-blog
@@ -62,6 +61,11 @@ ADMIN_EMAIL=qi@example.com
 CORS_ORIGINS=https://www.optlab.space,https://optlab.space
 
 DEEPSEEK_API_KEY=<你的 DeepSeek Key>
+
+# 阿里云 NLS 文字转语音（AI 对话 TTS 功能必需）
+ALIYUN_NLS_APPKEY=<NLS 控制台的 AppKey>
+ALIYUN_ACCESS_KEY_ID=<AccessKey ID>
+ALIYUN_ACCESS_KEY_SECRET=<AccessKey Secret>
 
 # 图片存储目录（必须与 nginx alias 一致）
 PHOTOS_DIR=/var/www/qi-blog/photos
@@ -248,14 +252,17 @@ frontend/public/exes/*.zip
 
 部署完成后逐项检查：
 
-- [ ] `https://www.optlab.space/blog/` 首页正常加载
-- [ ] `https://www.optlab.space/blog/projects` 显示 5 个项目（从数据库加载）
-- [ ] `https://www.optlab.space/blog/photos` 显示 33 张图片
+- [ ] `https://www.optlab.space/blog/` 首页正常加载，页面跳转时出现水豚加载动画
+- [ ] `https://www.optlab.space/blog/projects` 显示项目列表（从数据库加载）
+- [ ] `https://www.optlab.space/blog/photos` 显示相册图片
 - [ ] `https://www.optlab.space/api/` 返回 `{"message":"起风了 API · 正在运行"}`
 - [ ] `/blog/admin` 用管理员账号可以登录
+- [ ] 后台仪表盘显示文章、评论、用户、AI 对话统计
 - [ ] 后台图片上传测试：上传一张图片，相册页面可见
 - [ ] 下载按钮：点击 QT 项目卡片的"⬇ 下载程序"，浏览器触发下载
 - [ ] 水豚祁 AI 对话正常响应（流式输出）
+- [ ] AI 对话 TTS：点击播放按钮，能听到阿里云 NLS 合成语音
+- [ ] 后台 `/admin/chat` 能查看用户聊天记录并支持清空
 
 ---
 

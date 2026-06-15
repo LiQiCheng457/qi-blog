@@ -5,12 +5,12 @@
 
 ## 1. 项目定位
 
-`起风了` 是一个个人作品集博客，包含公开站点、用户登录资料页、评论能力和博主管理后台。
+`起风了` 是一个个人作品集博客，包含公开站点、用户登录资料页、评论能力、AI 对话助手（水豚祁）和博主管理后台。
 
 核心气质：
 
 - 温暖、克制、有风感。
-- 以水豚吉祥物“祁”为视觉 IP。
+- 以水豚吉祥物"祁"为视觉 IP。
 - 公开页面偏博客和作品集，后台页面偏工具化、信息密度高。
 
 开发原则：
@@ -42,6 +42,7 @@
 - asyncpg / psycopg2-binary
 - python-jose JWT
 - passlib bcrypt
+- httpx（用于调用外部 API：DeepSeek、阿里云 NLS）
 - PostgreSQL
 
 ## 3. 当前目录结构
@@ -53,12 +54,12 @@
 │  │  ├─ animations/          # 水豚动图资源，WebP/GIF
 │  │  └─ avatars/             # 用户资料页固定头像库
 │  ├─ src/
-│  │  ├─ api/                 # 前端 API 封装
+│  │  ├─ api/                 # 前端 API 封装（统一通过 client.ts）
 │  │  ├─ assets/              # 页面静态图片资源
-│  │  ├─ components/          # 通用组件
+│  │  ├─ components/          # 通用组件（含 LoadingOverlay、ChatWidget）
 │  │  ├─ composables/         # 组合式逻辑
 │  │  ├─ data/                # 本地补充数据
-│  │  ├─ router/              # 路由与守卫
+│  │  ├─ router/              # 路由与守卫（守卫在模块级注册）
 │  │  ├─ stores/              # Pinia stores
 │  │  ├─ styles/tokens.css    # 全局设计变量与基础样式
 │  │  ├─ types/               # 前端类型
@@ -66,14 +67,15 @@
 │  ├─ package.json
 │  └─ vite.config.ts
 ├─ backend/
-│  ├─ routers/                # FastAPI routers
+│  ├─ routers/                # FastAPI routers（posts/projects/users/comments/photos/chat/admin）
 │  ├─ scripts/                # 初始化、导入、云端配置脚本
 │  ├─ auth.py                 # JWT 与鉴权工具
-│  ├─ database.py             # 异步数据库连接
+│  ├─ database.py             # 异步数据库连接与初始化种子
 │  ├─ main.py                 # FastAPI 应用入口
 │  └─ models.py               # SQLModel 表与请求响应模型
 ├─ QI_BLOG_AGENT_PROMPT.md
-└─ PROGRESS.md
+├─ PROGRESS.md
+└─ DEPLOY.md
 ```
 
 ## 4. 路由与页面
@@ -99,12 +101,20 @@
 | `/admin/posts/new` | `AdminPostEdit.vue` | admin |
 | `/admin/posts/:slug/edit` | `AdminPostEdit.vue` | admin |
 | `/admin/projects` | `AdminProjects.vue` | admin |
+| `/admin/users` | `AdminUsers.vue` | admin |
+| `/admin/comments` | `AdminComments.vue` | admin |
+| `/admin/photos` | `AdminPhotos.vue` | admin |
+| `/admin/chat` | `AdminChat.vue` | admin |
 
 `/admin/login` 已重定向到首页，登录通过导航栏弹窗完成。
 
+### 路由守卫注意点
+
+守卫（`beforeEach` / `afterEach`）在 `router/index.ts` **模块级**注册，不在任何组件 `setup()` 内注册，避免 HMR 热更新时重复累积。守卫同时导出 `isPageLoading: Ref<boolean>` 供 `App.vue` 的 `<LoadingOverlay>` 使用。
+
 ## 5. API 概览
 
-前端统一通过 `src/api/client.ts` 发请求，自动附带 `qi_token` JWT。
+前端统一通过 `src/api/client.ts` 的 `api` 对象发请求，自动附带 `qi_token` JWT。所有页面/组件不直接调用 `fetch`。
 
 ### 用户
 
@@ -138,11 +148,66 @@
 - `DELETE /api/comments/{comment_id}`，本人或 admin
 - `DELETE /api/comments/admin/{comment_id}`，admin
 
+### 相册
+
+- `GET /api/photos`
+- `POST /api/photos`，admin（multipart/form-data）
+- `PATCH /api/photos/{id}`，admin
+- `DELETE /api/photos/{id}`，admin
+
+### AI 对话
+
+- `POST /api/chat/message`，登录用户，SSE 流式响应
+- `GET /api/chat/history`，登录用户
+- `DELETE /api/chat/history`，登录用户
+- `POST /api/chat/tts`，登录用户，返回 `audio/mpeg` 二进制流（阿里云 NLS 合成）
+
 ### 后台统计
 
-- `GET /api/admin/stats`，admin
+- `GET /api/admin/stats`，admin  
+  返回字段：`post_count`, `pub_count`, `view_total`, `comment_count`, `user_count`, `monthly_posts`, `monthly_comments`, `top_posts`, `chat_msg_count`, `chat_user_count`, `monthly_chats`, `active_chatters`
 
-## 6. 资源规范
+### 后台管理
+
+- `GET /api/admin/users`，admin
+- `PATCH /api/admin/users/{id}`，admin
+- `DELETE /api/admin/users/{id}`，admin
+- `GET /api/admin/comments?user_id=`，admin
+- `GET /api/admin/chat`，admin（列出有聊天记录的用户及统计）
+- `GET /api/admin/chat/{user_id}`，admin
+- `DELETE /api/admin/chat/{user_id}`，admin
+
+## 6. 环境变量
+
+后端 `.env`（不入 git）必需字段：
+
+| 变量 | 说明 |
+|---|---|
+| `DATABASE_URL` | asyncpg 连接串 |
+| `SECRET_KEY` | JWT 签名密钥 |
+| `ALGORITHM` | 固定 `HS256` |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | Token 有效期（分钟） |
+| `ADMIN_USERNAME` | 管理员用户名 |
+| `ADMIN_PASSWORD_HASH` | bcrypt 哈希，启动时自动同步到数据库 |
+| `ADMIN_EMAIL` | 管理员邮箱 |
+| `CORS_ORIGINS` | 逗号分隔的允许来源 |
+| `DEEPSEEK_API_KEY` | DeepSeek AI 密钥 |
+| `ALIYUN_NLS_APPKEY` | 阿里云 NLS 语音合成 AppKey |
+| `ALIYUN_ACCESS_KEY_ID` | 阿里云 RAM AccessKey ID |
+| `ALIYUN_ACCESS_KEY_SECRET` | 阿里云 RAM AccessKey Secret |
+| `PHOTOS_DIR` | 图片存储绝对路径 |
+
+## 7. TTS 架构说明
+
+**不使用** Web Speech API 或 edge-tts，两者在国内均不可靠。
+
+当前方案：
+1. 后端 `routers/chat.py` 持有 NLS Token 缓存（`_nls_cache`），通过 HMAC-SHA1 签名动态获取或直接读取 `ALIYUN_NLS_TOKEN` 静态变量。
+2. `POST /api/chat/tts` 接收 `{ text, voice? }` → 调用 `nls-gateway-cn-shanghai.aliyuncs.com/stream/v1/tts` → 将 mp3 二进制直接返回给前端。
+3. 前端 `ChatWidget.vue` 的 `speakText()` 用 `fetch` 拿到 blob，`URL.createObjectURL` 后传给 `new Audio()` 播放。
+4. 支持中途 `stopSpeech()`：`pause()` 当前 Audio 实例，释放 ObjectURL。
+
+## 8. 资源规范
 
 ### 水豚动画
 
@@ -153,6 +218,7 @@
 ```text
 /animations/qi_wave_medium.webp
 /animations/qi_type_small_transp.gif
+/animations/qi_wind_medium.webp   ← LoadingOverlay 使用
 ```
 
 `QiMascot.vue` 支持：
@@ -161,10 +227,15 @@
 - size: `small | medium | large`
 - `autoSwitch`: 跟随滚动进度切换状态
 
+`LoadingOverlay.vue`：
+- 页面路由跳转时显示，`App.vue` 通过 `isPageLoading` ref 控制
+- 使用 `qi_wind_medium.webp`，浮动动效
+- Vue Transition `name="qi-loading"` 淡入/淡出
+
 注意：
 
 - `singing` 当前映射到 `wave` 资源。
-- 不要把暗色主题选择器写成 `:global([data-theme="dark"]) .xxx`，在 Vue scoped CSS 下应写成 `:global([data-theme="dark"] .xxx)`，避免样式错误套到 `html` 上。
+- 不要把暗色主题选择器写成 `:global([data-theme="dark"]) .xxx`，在 Vue scoped CSS 下应写成 `:global([data-theme="dark"] .xxx)`。
 
 ### 固定头像库
 
@@ -188,7 +259,7 @@ qi-avatar-think.png
 
 不要恢复自由头像 URL 输入，避免外链失效、混合内容和不可控资源。
 
-## 7. 设计系统
+## 9. 设计系统
 
 全局 token 在 `frontend/src/styles/tokens.css`。
 
@@ -219,7 +290,7 @@ qi-avatar-think.png
 - 不要用一整页同一色相堆叠，必要时用边框、透明层和浅背景分层。
 - 禁止让固定元素或图片 transform 造成横向溢出。
 
-## 8. 前端代码规范
+## 10. 前端代码规范
 
 ### Vue 与 TypeScript
 
@@ -236,7 +307,7 @@ qi-avatar-think.png
 - 页面级业务放 `src/views/`。
 - 跨页面状态放 `src/stores/`。
 - 纯组合逻辑放 `src/composables/`。
-- API 请求只放 `src/api/`，页面不要直接拼 fetch，已有例外可逐步收敛。
+- API 请求只放 `src/api/`，统一通过 `api` client 对象，不直接 `fetch`。
 
 ### 样式
 
@@ -261,7 +332,7 @@ qi-avatar-think.png
 - 保存失败必须展示后端错误信息或明确 fallback 文案。
 - loading 状态必须禁用提交按钮。
 
-## 9. 后端代码规范
+## 11. 后端代码规范
 
 - router 按领域放在 `backend/routers/`。
 - 公开接口和 admin 接口明确依赖：
@@ -271,9 +342,10 @@ qi-avatar-think.png
 - 数据库访问使用 `AsyncSession`。
 - 修改数据库对象后必须 `session.add()`、`commit()`，需要返回最新数据时 `refresh()`。
 - 错误响应使用 `HTTPException`，状态码要语义清晰。
-- 不要把真实数据库连接、JWT secret、服务器账号写入文档或提交到仓库。
+- 不要把真实数据库连接、JWT secret、AccessKey 写入文档或提交到仓库。
+- 外部 HTTP 请求（DeepSeek、阿里云 NLS）使用 `httpx.AsyncClient`。
 
-## 10. 常用命令
+## 12. 常用命令
 
 ### 前端
 
@@ -299,7 +371,7 @@ uvicorn main:app --reload --port 8000
 
 如使用 conda，先激活项目环境。
 
-## 11. 验证清单
+## 13. 验证清单
 
 每次改动完成至少检查：
 
@@ -317,9 +389,11 @@ uvicorn main:app --reload --port 8000
 - 390px 移动宽度。
 - 暗色模式。
 
-## 12. 已知注意点
+## 14. 已知注意点
 
 - 右下角固定水豚属于装饰元素，不能影响布局宽度。
 - 个人资料页桌面端当前按单屏优化，移动端保留滚动。
 - build 可能提示大 chunk 警告，当前不阻塞构建；如后续优化，可考虑后台图表和文章详情拆 chunk。
 - 文档和源码统一保存为 UTF-8，避免中文乱码。
+- 路由守卫只在 `router/index.ts` 模块级注册，不在组件 `setup()` 内重复注册（HMR 会重复累积）。
+- TTS 不使用 Web Speech API 或 edge-tts，必须通过 `/api/chat/tts` 后端代理阿里云 NLS。

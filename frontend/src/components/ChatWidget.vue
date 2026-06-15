@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { assetUrl } from '@/utils/assets'
+import { useUserStore } from '@/stores/user'
+import { getToken } from '@/api/client'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -9,15 +12,93 @@ interface Message {
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 
-const STORAGE_KEY = 'qi_chat_history'
-const API_BASE = import.meta.env.VITE_API_BASE || ''
+const API_BASE  = import.meta.env.VITE_API_BASE || ''
+const qiSmall   = assetUrl('/animations/qi_small.webp')
+const userStore = useUserStore()
+const isLoggedIn = computed(() => userStore.isLoggedIn)
 
-const messages = ref<Message[]>([])
-const input = ref('')
-const loading = ref(false)
-const messagesEl = ref<HTMLElement>()
-const inputEl = ref<HTMLTextAreaElement>()
-const panelEl = ref<HTMLElement>()
+const DEFAULT_GREETING: Message = {
+  role: 'assistant',
+  content: '哦，你来了。(￣▽￣)\n有什么想聊的，或者想看看这个博客有什么？',
+}
+
+const messages    = ref<Message[]>([])
+const input       = ref('')
+const loading     = ref(false)
+const histLoading = ref(false)
+const messagesEl  = ref<HTMLElement>()
+const inputEl     = ref<HTMLTextAreaElement>()
+const panelEl     = ref<HTMLElement>()
+
+// ── TTS（阿里云 NLS，后端代理返回 mp3） ────────────────
+const autoPlay  = ref(false)
+const isPlaying = ref(false)
+let   currentAudio: HTMLAudioElement | null = null
+
+function toSpeechText(text: string): string {
+  return text
+    .replace(/```[\s\S]*?```/g, '代码块略，')
+    .replace(/`[^`]+`/g, '')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/^[-*]\s+/gm, '')
+    .replace(/\n+/g, ' ')
+    .trim()
+}
+
+function stopSpeech() {
+  if (currentAudio) {
+    currentAudio.pause()
+    currentAudio.src = ''
+    currentAudio = null
+  }
+  isPlaying.value = false
+}
+
+async function speakText(text: string) {
+  stopSpeech()
+  const cleaned = toSpeechText(text)
+  if (!cleaned) return
+
+  isPlaying.value = true
+  try {
+    const token = getToken()
+    const resp = await fetch(`${API_BASE}/api/chat/tts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ text: cleaned }),
+    })
+    if (!resp.ok) throw new Error(`TTS ${resp.status}`)
+
+    const blob  = await resp.blob()
+    const url   = URL.createObjectURL(blob)
+    const audio = new Audio(url)
+    currentAudio = audio
+
+    audio.onended = () => {
+      URL.revokeObjectURL(url)
+      if (currentAudio === audio) currentAudio = null
+      isPlaying.value = false
+    }
+    audio.onerror = () => {
+      URL.revokeObjectURL(url)
+      if (currentAudio === audio) currentAudio = null
+      isPlaying.value = false
+    }
+    await audio.play()
+  } catch (e) {
+    console.error('TTS error:', e)
+    isPlaying.value = false
+  }
+}
+
+function toggleAutoPlay() {
+  if (isPlaying.value) { stopSpeech(); return }
+  autoPlay.value = !autoPlay.value
+}
+
 
 // ── 位置（左上角坐标） ──────────────────────────────────
 const pos = ref({ x: 0, y: 0 })
@@ -46,7 +127,7 @@ function onDragStart(e: MouseEvent) {
     const pw = panelEl.value?.offsetWidth ?? 340
     const ph = panelEl.value?.offsetHeight ?? 480
     pos.value = {
-      x: Math.max(0, Math.min(window.innerWidth - pw, startPx + ev.clientX - startMx)),
+      x: Math.max(0, Math.min(window.innerWidth - pw,  startPx + ev.clientX - startMx)),
       y: Math.max(0, Math.min(window.innerHeight - ph, startPy + ev.clientY - startMy)),
     }
   }
@@ -60,25 +141,41 @@ function onDragStart(e: MouseEvent) {
   document.addEventListener('mouseup', onUp)
 }
 
-// ── 历史记录 ────────────────────────────────────────────
-onMounted(() => {
+// ── 历史记录（从 API 加载） ─────────────────────────────
+async function loadHistory() {
+  histLoading.value = true
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) messages.value = JSON.parse(raw)
-  } catch {}
-  if (messages.value.length === 0) {
-    messages.value = [{
-      role: 'assistant',
-      content: '哦，你来了。(￣▽￣)\n有什么想聊的，或者想看看这个博客有什么？',
-    }]
+    const resp = await fetch(`${API_BASE}/api/chat/history`, {
+      headers: { Authorization: `Bearer ${getToken()}` },
+    })
+    if (resp.ok) {
+      const data: Message[] = await resp.json()
+      messages.value = data.length > 0 ? data : [{ ...DEFAULT_GREETING }]
+    } else {
+      messages.value = [{ ...DEFAULT_GREETING }]
+    }
+  } catch {
+    messages.value = [{ ...DEFAULT_GREETING }]
+  } finally {
+    histLoading.value = false
   }
-  // open 已为 true 时（如 HMR 重载）立即初始化位置
+}
+
+onMounted(async () => {
+  if (isLoggedIn.value) {
+    await loadHistory()
+  }
   if (props.open) initPos()
 })
 
-function saveHistory() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.value))
-}
+// 登录状态变化时重新加载
+watch(isLoggedIn, async (loggedIn) => {
+  if (loggedIn) {
+    await loadHistory()
+  } else {
+    messages.value = []
+  }
+})
 
 // ── 滚底 ───────────────────────────────────────────────
 async function scrollBottom() {
@@ -105,14 +202,16 @@ watch(() => props.open, async (val) => {
     await nextTick()
     inputEl.value?.focus()
     autoResize()
+  } else {
+    stopSpeech()
   }
 })
 
 // ── 发送 ───────────────────────────────────────────────
 async function send() {
-  const text = input.value.trim()
-  if (!text || loading.value) return
+  if (!isLoggedIn.value || !input.value.trim() || loading.value) return
 
+  const text = input.value.trim()
   messages.value.push({ role: 'user', content: text })
   input.value = ''
   loading.value = true
@@ -126,13 +225,16 @@ async function send() {
   try {
     const resp = await fetch(`${API_BASE}/api/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: messages.value.slice(0, -1) }),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${getToken()}`,
+      },
+      body: JSON.stringify({ message: text }),
     })
 
     if (!resp.ok || !resp.body) throw new Error('请求失败')
 
-    const reader = resp.body.getReader()
+    const reader  = resp.body.getReader()
     const decoder = new TextDecoder()
 
     while (true) {
@@ -145,9 +247,13 @@ async function send() {
     messages.value[idx].content = '(・_・;) 呃，出了点问题，稍后再试试？'
   } finally {
     loading.value = false
-    saveHistory()
     await scrollBottom()
     inputEl.value?.focus()
+    // 自动播放开启时朗读 AI 回复
+    if (autoPlay.value) {
+      const last = messages.value[messages.value.length - 1]
+      if (last?.role === 'assistant' && last.content) speakText(last.content)
+    }
   }
 }
 
@@ -158,9 +264,15 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
-function clearHistory() {
+async function clearHistory() {
+  if (!isLoggedIn.value) return
+  try {
+    await fetch(`${API_BASE}/api/chat/history`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${getToken()}` },
+    })
+  } catch {}
   messages.value = [{ role: 'assistant', content: '嗯，清掉了。(￣▽￣) 重新聊吧。' }]
-  saveHistory()
 }
 
 // ── 消息格式化（支持 markdown 子集） ──────────────────
@@ -170,13 +282,11 @@ function esc(s: string) {
 
 function renderText(text: string): string {
   let s = esc(text)
-  // 逐行处理列表项
   s = s.split('\n').map(line => {
     const li = line.match(/^[-*]\s+(.*)$/)
     if (li) return `<span class="ci-li">· ${li[1]}</span>`
     return line
   }).join('\n')
-  // 行内样式
   s = s
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/`([^`\n]+)`/g, '<code class="ci-ic">$1</code>')
@@ -214,27 +324,50 @@ function formatMsg(text: string): string {
       <!-- 头部（拖拽区） -->
       <div class="chat-header" @mousedown="onDragStart">
         <div class="chat-header-info">
-          <img src="/animations/qi_small.webp" alt="水豚祁" class="header-avatar" />
+          <img :src="qiSmall" alt="水豚祁" class="header-avatar" />
           <div>
             <span class="header-name">水豚祁</span>
             <span class="header-status">
               <span class="status-dot" :class="{ loading }"></span>
-              {{ loading ? '思考中…' : '在线' }}
+              {{ loading ? '思考中…' : isLoggedIn ? '在线' : '未登录' }}
             </span>
           </div>
         </div>
         <div class="header-actions" @mousedown.stop>
-          <button class="icon-btn" title="清空记录" @click="clearHistory">🗑</button>
+          <button
+            v-if="isLoggedIn"
+            class="icon-btn"
+            :class="{ 'tts-active': autoPlay || isPlaying }"
+            :title="isPlaying ? '停止朗读' : autoPlay ? '关闭自动朗读' : '开启自动朗读'"
+            @click="toggleAutoPlay"
+          >
+            <span v-if="isPlaying" class="tts-wave">🔊</span>
+            <span v-else-if="autoPlay">🔊</span>
+            <span v-else>🔇</span>
+          </button>
+          <button v-if="isLoggedIn" class="icon-btn" title="清空记录" @click="clearHistory">🗑</button>
           <button class="icon-btn" title="关闭" @click="emit('close')">✕</button>
         </div>
       </div>
 
+      <!-- 未登录锁定状态 -->
+      <div v-if="!isLoggedIn" class="chat-locked">
+        <img :src="qiSmall" alt="水豚祁" class="lock-avatar" />
+        <p class="lock-msg">还没认识你呢~<br>登录之后才能和我聊哦 (´・ω・`)</p>
+      </div>
+
+      <!-- 历史加载中 -->
+      <div v-else-if="histLoading" class="chat-loading">
+        <span class="typing-dots"><span></span><span></span><span></span></span>
+        <span class="loading-tip">加载历史记录…</span>
+      </div>
+
       <!-- 消息列表 -->
-      <div ref="messagesEl" class="chat-messages">
+      <div v-else ref="messagesEl" class="chat-messages">
         <div v-for="(msg, i) in messages" :key="i" class="msg-row" :class="msg.role">
           <img
             v-if="msg.role === 'assistant'"
-            src="/animations/qi_small.webp"
+            :src="qiSmall"
             alt="水豚祁"
             class="msg-avatar"
           />
@@ -256,11 +389,15 @@ function formatMsg(text: string): string {
           ref="inputEl"
           v-model="input"
           class="chat-input"
-          placeholder="说点什么… (Enter 发送，Shift+Enter 换行)"
-          :disabled="loading"
+          :placeholder="isLoggedIn ? '说点什么… (Enter 发送，Shift+Enter 换行)' : '登录后才能发送消息'"
+          :disabled="loading || !isLoggedIn"
           @keydown="onKeydown"
         ></textarea>
-        <button class="send-btn" :disabled="!input.trim() || loading" @click="send">
+        <button
+          class="send-btn"
+          :disabled="!input.trim() || loading || !isLoggedIn"
+          @click="send"
+        >
           {{ loading ? '…' : '发送' }}
         </button>
       </div>
@@ -301,11 +438,7 @@ function formatMsg(text: string): string {
 }
 .chat-header:active { cursor: grabbing; }
 
-.chat-header-info {
-  display: flex;
-  align-items: center;
-  gap: .6rem;
-}
+.chat-header-info { display: flex; align-items: center; gap: .6rem; }
 
 .header-avatar {
   width: 36px; height: 36px;
@@ -314,21 +447,9 @@ function formatMsg(text: string): string {
   pointer-events: none;
 }
 
-.header-name {
-  display: block;
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--qi-ink);
-  line-height: 1.3;
-}
+.header-name { display: block; font-size: 14px; font-weight: 700; color: var(--qi-ink); line-height: 1.3; }
 
-.header-status {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--qi-ink-muted);
-}
+.header-status { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--qi-ink-muted); }
 
 .status-dot {
   width: 6px; height: 6px;
@@ -336,31 +457,58 @@ function formatMsg(text: string): string {
   background: #6bcb77;
   transition: background .3s;
 }
-.status-dot.loading {
-  background: var(--qi-primary);
-  animation: pulse .8s infinite;
-}
+.status-dot.loading { background: var(--qi-primary); animation: pulse .8s infinite; }
 
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
 
-.header-actions {
-  display: flex;
-  gap: .4rem;
-  cursor: default;
-}
+.header-actions { display: flex; gap: .4rem; cursor: default; }
 
 .icon-btn {
   width: 28px; height: 28px;
-  border: none;
-  background: none;
+  border: none; background: none;
   color: var(--qi-ink-muted);
   border-radius: 8px;
-  cursor: pointer;
-  font-size: 13px;
+  cursor: pointer; font-size: 13px;
   display: flex; align-items: center; justify-content: center;
   transition: background .15s, color .15s;
 }
 .icon-btn:hover { background: var(--qi-bg-muted); color: var(--qi-ink); }
+
+/* 未登录锁定 */
+.chat-locked {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 2rem 1.5rem;
+}
+.lock-avatar {
+  width: 64px; height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  opacity: .65;
+  filter: grayscale(.3);
+}
+.lock-msg {
+  font-size: 14px;
+  color: var(--qi-ink-muted);
+  line-height: 1.8;
+  text-align: center;
+  margin: 0;
+}
+
+/* 历史加载 */
+.chat-loading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .75rem;
+}
+.loading-tip { font-size: 12px; color: var(--qi-ink-light); }
 
 /* 消息区 */
 .chat-messages {
@@ -374,24 +522,12 @@ function formatMsg(text: string): string {
 }
 
 .chat-messages::-webkit-scrollbar { width: 4px; }
-.chat-messages::-webkit-scrollbar-thumb {
-  background: var(--qi-border);
-  border-radius: 4px;
-}
+.chat-messages::-webkit-scrollbar-thumb { background: var(--qi-border); border-radius: 4px; }
 
-.msg-row {
-  display: flex;
-  gap: .5rem;
-  align-items: flex-end;
-}
+.msg-row { display: flex; gap: .5rem; align-items: flex-end; }
 .msg-row.user { flex-direction: row-reverse; }
 
-.msg-avatar {
-  width: 28px; height: 28px;
-  border-radius: 50%;
-  object-fit: cover;
-  flex-shrink: 0;
-}
+.msg-avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
 
 .msg-bubble {
   max-width: 75%;
@@ -414,13 +550,13 @@ function formatMsg(text: string): string {
   border-bottom-right-radius: 4px;
 }
 
+/* TTS 开关激活态 */
+.icon-btn.tts-active { color: var(--qi-primary); }
+.tts-wave { display: inline-block; animation: tts-pulse .6s ease-in-out infinite alternate; }
+@keyframes tts-pulse { from { opacity: .5; } to { opacity: 1; } }
+
 /* 打字动画 */
-.typing-dots {
-  display: inline-flex;
-  gap: 3px;
-  align-items: center;
-  height: 16px;
-}
+.typing-dots { display: inline-flex; gap: 3px; align-items: center; height: 16px; }
 .typing-dots span {
   width: 5px; height: 5px;
   border-radius: 50%;
@@ -430,10 +566,7 @@ function formatMsg(text: string): string {
 .typing-dots span:nth-child(2) { animation-delay: .15s; }
 .typing-dots span:nth-child(3) { animation-delay: .3s; }
 
-@keyframes bounce {
-  0%, 80%, 100% { transform: translateY(0); }
-  40% { transform: translateY(-5px); }
-}
+@keyframes bounce { 0%, 80%, 100% { transform: translateY(0); } 40% { transform: translateY(-5px); } }
 
 /* 输入区 */
 .chat-input-area {
@@ -448,7 +581,7 @@ function formatMsg(text: string): string {
 .chat-input {
   flex: 1;
   resize: none;
-  overflow: hidden;          /* 不显示滚动条 */
+  overflow: hidden;
   border: 1.5px solid var(--qi-border);
   border-radius: 10px;
   padding: .5rem .75rem;
@@ -462,7 +595,7 @@ function formatMsg(text: string): string {
   max-height: 96px;
 }
 .chat-input:focus { outline: none; border-color: var(--qi-primary); }
-.chat-input:disabled { opacity: .5; }
+.chat-input:disabled { opacity: .5; cursor: not-allowed; }
 
 .send-btn {
   padding: .45rem .9rem;
@@ -491,9 +624,7 @@ function formatMsg(text: string): string {
   border-radius: 4px;
   font-size: .88em;
 }
-.msg-row.user .msg-text :deep(.ci-ic) {
-  background: rgba(255, 255, 255, .22);
-}
+.msg-row.user .msg-text :deep(.ci-ic) { background: rgba(255, 255, 255, .22); }
 
 .msg-text :deep(.ci-pre) {
   background: var(--qi-bg-muted);
@@ -512,11 +643,7 @@ function formatMsg(text: string): string {
   border-color: rgba(255, 255, 255, .2);
 }
 
-.msg-text :deep(.ci-li) {
-  display: block;
-  padding-left: .2rem;
-  line-height: 1.8;
-}
+.msg-text :deep(.ci-li) { display: block; padding-left: .2rem; line-height: 1.8; }
 
 /* 开关动画 */
 .chat-panel-enter-active { transition: opacity .22s ease, transform .22s ease; }
@@ -527,12 +654,9 @@ function formatMsg(text: string): string {
 /* 移动端：固定底部全宽 */
 @media (max-width: 480px) {
   .chat-panel {
-    left: 0 !important;
-    right: 0 !important;
-    bottom: 0 !important;
-    top: auto !important;
-    width: 100% !important;
-    height: 72vh !important;
+    left: 0 !important; right: 0 !important;
+    bottom: 0 !important; top: auto !important;
+    width: 100% !important; height: 72vh !important;
     min-width: unset;
     border-radius: 20px 20px 0 0;
     resize: none;

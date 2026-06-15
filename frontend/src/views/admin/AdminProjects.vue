@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { projectsApi } from '@/api/projects'
+import { exesApi } from '@/api/exes'
+import type { ExeFile } from '@/api/exes'
 import type { Project } from '@/types'
+import ImagePickerModal from '@/components/ImagePickerModal.vue'
 
 type ProjectStatus = Project['status']
 type ProjectForm = {
@@ -10,6 +13,7 @@ type ProjectForm = {
   techStack: string
   link: string
   githubUrl: string
+  downloadUrl: string
   cover: string
   category: string
   featured: boolean
@@ -23,9 +27,22 @@ const saving   = ref(false)
 const editId   = ref<number | null>(null)
 const error    = ref('')
 
+const showImagePicker = ref(false)
+const showExePicker   = ref(false)
+const exeFiles        = ref<ExeFile[]>([])
+const exePickerLoaded = ref(false)
+
+async function openExePicker() {
+  showExePicker.value = true
+  if (!exePickerLoaded.value) {
+    try { exeFiles.value = await exesApi.list() }
+    finally { exePickerLoaded.value = true }
+  }
+}
+
 const blankForm = (): ProjectForm => ({
   name: '', description: '', techStack: '', link: '',
-  githubUrl: '', cover: '', category: '全栈', featured: false, status: 'active',
+  githubUrl: '', downloadUrl: '', cover: '', category: '全栈', featured: false, status: 'active',
 })
 const form = ref(blankForm())
 
@@ -48,6 +65,7 @@ function openEdit(p: Project) {
     name: p.name, description: p.description,
     techStack: p.techStack.join(', '),
     link: p.link ?? '', githubUrl: p.githubUrl ?? '',
+    downloadUrl: p.download ?? '',
     cover: p.cover ?? '',
     category: p.category, featured: p.featured, status: p.status,
   }
@@ -63,9 +81,10 @@ async function saveProject() {
       name: form.value.name.trim(),
       description: form.value.description.trim(),
       tech_stack: form.value.techStack.split(',').map(t => t.trim()).filter(Boolean).join(','),
-      url: form.value.link.trim() || undefined,
-      github: form.value.githubUrl.trim() || undefined,
-      cover: form.value.cover.trim() || undefined,
+      url: form.value.link.trim() || null,
+      github: form.value.githubUrl.trim() || null,
+      download: form.value.downloadUrl.trim() || null,
+      cover: form.value.cover.trim() || null,
       category: form.value.category,
       featured: form.value.featured,
       status: form.value.status,
@@ -165,8 +184,8 @@ async function deleteProject(id: number, name: string) {
           </div>
           <div class="field-row">
             <div class="field">
-              <label>演示链接</label>
-              <input v-model="form.link" type="text" placeholder="https://… 或 /exes/xxx.zip" />
+              <label>预览链接（「查看」按钮）</label>
+              <input v-model="form.link" type="text" placeholder="https://…" />
             </div>
             <div class="field">
               <label>GitHub 链接</label>
@@ -174,8 +193,18 @@ async function deleteProject(id: number, name: string) {
             </div>
           </div>
           <div class="field">
-            <label>封面图路径</label>
-            <input v-model="form.cover" type="text" placeholder="/photos/xxx.png" />
+            <label>程序下载链接（「下载程序」按钮）</label>
+            <div class="input-with-btn">
+              <input v-model="form.downloadUrl" type="text" placeholder="/exes/xxx.zip" />
+              <button type="button" class="pick-btn" @click="openExePicker">从程序库选择</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>封面图</label>
+            <div class="input-with-btn">
+              <input v-model="form.cover" type="text" placeholder="/photos/xxx.png" />
+              <button type="button" class="pick-btn" @click="showImagePicker = true">从相册选择</button>
+            </div>
             <img v-if="form.cover" :src="form.cover" class="cover-preview" />
           </div>
           <div class="field field--check">
@@ -187,6 +216,45 @@ async function deleteProject(id: number, name: string) {
           <button class="cancel-btn" @click="showForm=false">取消</button>
           <button class="save-btn" :disabled="saving" @click="saveProject">
             {{ saving ? '保存中…' : '保存' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 封面图选择器 -->
+  <ImagePickerModal
+    v-if="showImagePicker"
+    :current="form.cover"
+    @select="(url) => { form.cover = url }"
+    @close="showImagePicker = false"
+  />
+
+  <!-- exe 选择器 -->
+  <div v-if="showExePicker" class="modal-overlay" @click.self="showExePicker = false">
+    <div class="modal exe-picker-modal">
+      <div class="modal-header">
+        <h2>选择程序包</h2>
+        <button class="close-btn" @click="showExePicker = false">×</button>
+      </div>
+      <div class="modal-body">
+        <div v-if="!exePickerLoaded" class="exe-empty">加载中…</div>
+        <div v-else-if="exeFiles.length === 0" class="exe-empty">
+          还没有程序包，请先到「程序管理」页上传。
+        </div>
+        <div v-else class="exe-list">
+          <button
+            v-for="f in exeFiles"
+            :key="f.filename"
+            class="exe-item"
+            :class="{ selected: form.downloadUrl === f.url }"
+            @click="form.downloadUrl = f.url; showExePicker = false"
+          >
+            <span class="exe-icon">📦</span>
+            <div class="exe-info">
+              <span class="exe-name">{{ f.filename }}</span>
+              <span class="exe-path">{{ f.url }}</span>
+            </div>
           </button>
         </div>
       </div>
@@ -240,5 +308,25 @@ async function deleteProject(id: number, name: string) {
 .save-btn:disabled { opacity:.6; cursor:not-allowed; }
 .error-msg { font-size:13px; color:#e05050; background:rgba(224,80,80,.06); border:1px solid rgba(224,80,80,.2); border-radius:8px; padding:.75rem 1rem; }
 .cover-preview { margin-top:.4rem; width:100%; max-height:120px; object-fit:cover; border-radius:8px; border:1px solid var(--qi-border); }
+.input-with-btn { display:flex; gap:.5rem; }
+.input-with-btn input { flex:1; min-width:0; }
+.pick-btn {
+  flex-shrink:0; padding:7px 12px; border-radius:8px; font-size:12.5px; font-weight:500;
+  border:1.5px solid var(--qi-border); background:var(--qi-bg); color:var(--qi-ink-muted);
+  cursor:pointer; white-space:nowrap; transition:all .15s;
+}
+.pick-btn:hover { border-color:var(--qi-primary); color:var(--qi-primary); }
+.exe-picker-modal { width:480px; }
+.exe-empty { padding:2rem; text-align:center; color:var(--qi-ink-light); font-size:13.5px; }
+.exe-list { display:flex; flex-direction:column; gap:.4rem; }
+.exe-item {
+  all:unset; display:flex; align-items:center; gap:.75rem; padding:.7rem .9rem;
+  border-radius:10px; border:1.5px solid var(--qi-border); cursor:pointer; transition:all .15s;
+}
+.exe-item:hover, .exe-item.selected { border-color:var(--qi-primary); background:rgba(255,140,90,.05); }
+.exe-icon { font-size:18px; flex-shrink:0; }
+.exe-info { display:flex; flex-direction:column; gap:.1rem; min-width:0; }
+.exe-name { font-size:13.5px; font-weight:500; color:var(--qi-ink); }
+.exe-path { font-size:11.5px; color:var(--qi-ink-light); font-family:monospace; }
 @media(max-width:600px){.projects-grid{grid-template-columns:1fr;}.field-row{grid-template-columns:1fr;}}
 </style>

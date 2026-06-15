@@ -4,6 +4,7 @@ import type { Project } from '@/types'
 function adapt(raw: any): Project {
   return {
     id:          raw.id,
+    projectId:   raw.project_id,
     name:        raw.name,
     description: raw.description,
     techStack:   raw.tech_stack ? raw.tech_stack.split(',').map((t: string) => t.trim()).filter(Boolean) : [],
@@ -12,6 +13,7 @@ function adapt(raw: any): Project {
     status:      raw.status ?? 'active',
     link:        raw.url,
     githubUrl:   raw.github,
+    download:    raw.download,
     cover:       raw.cover,
   }
 }
@@ -24,9 +26,10 @@ type ProjectPayload = {
   category: string
   featured?: boolean
   status?: string
-  github?: string
-  url?: string
-  cover?: string
+  github?: string | null
+  url?: string | null
+  download?: string | null
+  cover?: string | null
 }
 
 export const projectsApi = {

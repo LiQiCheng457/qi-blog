@@ -19,7 +19,7 @@ export const useUserStore = defineStore('user', () => {
   async function init() {
     if (!token.value) return
     try {
-      profile.value = await usersApi.me(token.value)
+      profile.value = await usersApi.me()
     } catch {
       token.value = null
       localStorage.removeItem(TOKEN_KEY)

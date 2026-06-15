@@ -12,6 +12,7 @@ export interface Post {
 
 export interface Project {
   id: number
+  projectId?: string
   name: string
   description: string
   techStack: string[]
@@ -20,6 +21,7 @@ export interface Project {
   status: 'active' | 'completed' | 'archived'
   link?: string
   githubUrl?: string
+  download?: string
   cover?: string
   highlights?: string[]
 }
