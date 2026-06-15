@@ -17,7 +17,8 @@
     └── 光学虚拟实验平台.zip
 
 /opt/qi-blog/
-└── backend/       # 后端代码（git clone / git pull 更新）
+└── repo/          # git clone 的完整仓库（git pull 更新）
+    └── backend/   # 后端代码，systemd 服务指向此目录
 ```
 
 ---
@@ -210,19 +211,14 @@ rsync -avz --delete frontend/dist/ root@47.116.111.170:/var/www/qi-blog/dist/
 ### 后端更新
 
 ```bash
+# 本机：先推送到 GitHub
+git push origin main
+
 # 服务器上执行
-cd /opt/qi-blog/backend
-git pull origin main          # 拉取最新代码
-systemctl restart qi-blog     # 重启服务
-systemctl status qi-blog      # 确认运行正常
+cd /opt/qi-blog/repo && git pull && systemctl restart qi-blog && systemctl status qi-blog
 ```
 
-或者写成一行快速执行：
-```bash
-cd /opt/qi-blog/backend && git pull && systemctl restart qi-blog && systemctl status qi-blog
-```
-
-> `.env` 文件**不在 git 中**，`git pull` 不会覆盖它，无需担心。
+> `.env` 和 `.venv` 不在 git 中，`git pull` 不会覆盖，无需担心。
 
 ### 新增图片/资产
 
