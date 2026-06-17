@@ -54,6 +54,8 @@ const navLinks = [
   { name: '项目', path: '/projects' },
   { name: '相册', path: '/photos' },
   { name: '文章', path: '/blog' },
+  { name: '工具', path: '/tools' },
+  { name: '游戏', path: '/games' },
 ]
 
 function navigate(path: string) {

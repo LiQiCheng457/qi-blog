@@ -27,6 +27,7 @@ function logout() {
         <RouterLink to="/admin/users"     class="nav-item" active-class="active">用户管理</RouterLink>
         <RouterLink to="/admin/comments"  class="nav-item" active-class="active">评论管理</RouterLink>
         <RouterLink to="/admin/chat"      class="nav-item" active-class="active">对话管理</RouterLink>
+        <RouterLink to="/admin/wishes"    class="nav-item" active-class="active">许愿池</RouterLink>
       </nav>
       <div class="sidebar-footer">
         <RouterLink class="nav-item" to="/profile">个人资料</RouterLink>

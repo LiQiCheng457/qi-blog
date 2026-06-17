@@ -52,27 +52,34 @@
 ├─ frontend/
 │  ├─ public/
 │  │  ├─ animations/          # 水豚动图资源，WebP/GIF
-│  │  └─ avatars/             # 用户资料页固定头像库
+│  │  ├─ avatars/             # 用户资料页固定头像库
+│  │  ├─ tiles/               # 2048 水豚 AI 插画 tile（18 张 256×256 PNG + 源图 grid1/grid2）
+│  │  └─ tools/               # 工具箱页面所需静态资源
 │  ├─ src/
 │  │  ├─ api/                 # 前端 API 封装（统一通过 client.ts）
 │  │  ├─ assets/              # 页面静态图片资源
-│  │  ├─ components/          # 通用组件（含 LoadingOverlay、ChatWidget）
+│  │  ├─ components/          # 通用组件（含 LoadingOverlay、ChatWidget、工具 Widget）
 │  │  ├─ composables/         # 组合式逻辑
 │  │  ├─ data/                # 本地补充数据
 │  │  ├─ router/              # 路由与守卫（守卫在模块级注册）
 │  │  ├─ stores/              # Pinia stores
 │  │  ├─ styles/tokens.css    # 全局设计变量与基础样式
 │  │  ├─ types/               # 前端类型
-│  │  └─ views/               # 页面和后台页面
+│  │  ├─ utils/assets.ts      # assetUrl() 工具函数，处理 Vite base 前缀
+│  │  └─ views/
+│  │     ├─ games/            # 游戏页面（Blog2048View.vue 等）
+│  │     └─ ...               # 其他页面和后台页面
 │  ├─ package.json
 │  └─ vite.config.ts
 ├─ backend/
-│  ├─ routers/                # FastAPI routers（posts/projects/users/comments/photos/chat/admin）
+│  ├─ routers/                # FastAPI routers（posts/projects/users/comments/photos/chat/admin/wishes）
 │  ├─ scripts/                # 初始化、导入、云端配置脚本
 │  ├─ auth.py                 # JWT 与鉴权工具
 │  ├─ database.py             # 异步数据库连接与初始化种子
 │  ├─ main.py                 # FastAPI 应用入口
 │  └─ models.py               # SQLModel 表与请求响应模型
+├─ scripts/
+│  └─ tile-crop/              # 图片裁剪脚本（crop_grid1.py / crop_grid2.py）
 ├─ QI_BLOG_AGENT_PROMPT.md
 ├─ PROGRESS.md
 └─ DEPLOY.md
@@ -90,6 +97,9 @@
 | `/blog` | `BlogView.vue` | 文章列表、搜索、标签筛选 |
 | `/blog/:slug` | `PostView.vue` | 文章详情、Markdown、目录、评论 |
 | `/profile` | `ProfileView.vue` | 登录用户资料页、固定头像选择、改密码 |
+| `/tools` | `ToolsView.vue` | 工具箱：日历/番茄钟/迷信指数/赛博许愿池，双列瀑布流布局 |
+| `/games` | `GamesView.vue` | 游戏大厅，卡片列表 |
+| `/games/2048` | `games/Blog2048View.vue` | 2048 起风了版，水豚 AI 插画 tile |
 | fallback | `NotFoundView.vue` | 404 |
 
 ### 后台
@@ -167,6 +177,12 @@
 - `GET /api/admin/stats`，admin  
   返回字段：`post_count`, `pub_count`, `view_total`, `comment_count`, `user_count`, `monthly_posts`, `monthly_comments`, `top_posts`, `chat_msg_count`, `chat_user_count`, `monthly_chats`, `active_chatters`
 
+### 许愿池
+
+- `POST /api/wishes`，登录用户，新增许愿
+- `GET /api/wishes`，获取许愿列表（公开）
+- `DELETE /api/wishes/{id}`，本人或 admin
+
 ### 后台管理
 
 - `GET /api/admin/users`，admin
@@ -176,6 +192,8 @@
 - `GET /api/admin/chat`，admin（列出有聊天记录的用户及统计）
 - `GET /api/admin/chat/{user_id}`，admin
 - `DELETE /api/admin/chat/{user_id}`，admin
+- `GET /api/admin/wishes`，admin
+- `DELETE /api/admin/wishes/{id}`，admin
 
 ## 6. 环境变量
 
@@ -208,6 +226,45 @@
 4. 支持中途 `stopSpeech()`：`pause()` 当前 Audio 实例，释放 ObjectURL。
 
 ## 8. 资源规范
+
+### assetUrl() 工具函数
+
+位置：`frontend/src/utils/assets.ts`
+
+用途：处理 Vite `base` 前缀（开发 `/`，生产 `/blog/`），确保 `public/` 下资源在生产环境路径正确。
+
+```ts
+import { assetUrl } from '@/utils/assets'
+// 开发：/tiles/qi-tile-write.png
+// 生产：/blog/tiles/qi-tile-write.png
+assetUrl('/tiles/qi-tile-write.png')
+```
+
+**重要：** `public/` 下的资源（tiles、animations、avatars）在模板或 JS 中引用时，必须通过 `assetUrl()` 包裹，否则生产环境路径会缺失 `/blog/` 前缀导致 404。
+
+### 2048 Tile 图片资源
+
+位置：`frontend/public/tiles/`
+
+当前 11 个游戏值对应的 tile 文件：
+
+| 值 | 文件名 |
+|---|---|
+| 2 | `qi-tile-write.png` |
+| 4 | `qi-tile-code.png` |
+| 8 | `qi-tile-relax.png` |
+| 16 | `qi-tile-photo.png` |
+| 32 | `qi-tile-think.png` |
+| 64 | `qi-tile-bath.png` |
+| 128 | `qi-tile-read.png` |
+| 256 | `qi-tile-cheer.png` |
+| 512 | `qi-tile-snack.png` |
+| 1024 | `qi-tile-trophy.png` |
+| 2048 | `qi-tile-wind.png` |
+
+额外备用（未用于游戏）：`qi-tile-sleep`, `qi-tile-yawn`, `qi-tile-music`, `qi-tile-garden`, `qi-tile-star`, `qi-tile-bike`, `qi-tile-rain`
+
+源图：`grid1.png`（九宫格 1）、`grid2.png`（九宫格 2），裁剪脚本在 `scripts/tile-crop/`，`GAP=6 INSET=20`，输出 256×256 PNG。
 
 ### 水豚动画
 

@@ -13,6 +13,9 @@ const router = createRouter({
     { path: '/photos', name: 'photos', component: () => import('@/views/PhotosView.vue') },
     { path: '/blog', name: 'blog', component: () => import('@/views/BlogView.vue') },
     { path: '/blog/:slug', name: 'post', component: () => import('@/views/PostView.vue') },
+    { path: '/tools', name: 'tools', component: () => import('@/views/ToolsView.vue') },
+    { path: '/games', name: 'games', component: () => import('@/views/GamesView.vue') },
+    { path: '/games/2048', name: 'blog2048', component: () => import('@/views/games/Blog2048View.vue') },
 
     // 个人资料（所有登录用户）
     {
@@ -41,6 +44,7 @@ const router = createRouter({
         { path: 'users',    name: 'admin-users',    component: () => import('@/views/admin/AdminUsers.vue') },
         { path: 'comments', name: 'admin-comments', component: () => import('@/views/admin/AdminComments.vue') },
         { path: 'chat',     name: 'admin-chat',     component: () => import('@/views/admin/AdminChat.vue') },
+        { path: 'wishes',   name: 'admin-wishes',   component: () => import('@/views/admin/AdminWishes.vue') },
       ],
     },
 

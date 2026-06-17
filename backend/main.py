@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from database import init_db
-from routers import posts, projects, auth, users, comments, admin, chat, photos, exes
+from routers import posts, projects, auth, users, comments, admin, chat, photos, exes, wishes
 
 load_dotenv()
 
@@ -42,6 +42,7 @@ app.include_router(admin.router)
 app.include_router(chat.router)
 app.include_router(photos.router)
 app.include_router(exes.router)
+app.include_router(wishes.router)
 
 
 @app.get("/")

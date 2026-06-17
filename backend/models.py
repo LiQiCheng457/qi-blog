@@ -79,6 +79,26 @@ class ChatRecord(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class Wish(SQLModel, table=True):
+    """许愿池：用户投递的愿望 + 内置种子愿望"""
+    __tablename__ = "wishes"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    content: str = Field(sa_column=Column(Text))
+    user_id: Optional[int] = Field(default=None, foreign_key="users.id", index=True)  # 种子愿望为 None
+    is_seed: bool = Field(default=False, index=True)
+    resonance_count: int = Field(default=0)
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
+class WishResonance(SQLModel, table=True):
+    """共鸣去重：同一用户对同一愿望只能共鸣一次"""
+    __tablename__ = "wish_resonances"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    wish_id: int = Field(foreign_key="wishes.id", index=True)
+    user_id: int = Field(foreign_key="users.id", index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 # ── Pydantic 响应 / 请求模型 ─────────────────────────────────────
 
 class PostRead(SQLModel):
@@ -154,3 +174,25 @@ class PhotoUpdate(SQLModel):
     alt: Optional[str] = None
     tag: Optional[str] = None
     sort_order: Optional[int] = None
+
+
+# ── 许愿池 ─────────────────────────────────────────────────────
+class WishRead(SQLModel):
+    id: int
+    content: str
+    is_seed: bool
+    resonance_count: int
+    has_resonated: bool = False  # 当前用户是否已共鸣（公开 API 返回时填充）
+    created_at: datetime
+
+class WishCreate(SQLModel):
+    content: str
+
+class WishAdminRead(SQLModel):
+    id: int
+    content: str
+    user_id: Optional[int]
+    username: Optional[str]
+    is_seed: bool
+    resonance_count: int
+    created_at: datetime
