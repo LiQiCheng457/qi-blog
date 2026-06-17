@@ -2,7 +2,7 @@
 
 Qi Blog 是一个个人作品集博客项目，包含公开博客、项目展示、相册、用户登录、评论、AI 对话助手、工具箱小游戏和管理员后台。
 
-线上预览：[https://www.optlab.spac/blog](https://www.optlab.spac/blog)
+线上预览：[https://www.optlab.space/blog/](https://www.optlab.space/blog/)
 
 ## 项目内容
 
