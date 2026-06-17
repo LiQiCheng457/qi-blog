@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import html2canvas from 'html2canvas'
+import { assetUrl } from '@/utils/assets'
 
 // ── 种子随机（同一天所有人结果相同）────────────────────────────────────
 function seedRng(seed: number) {
@@ -112,7 +113,7 @@ const data = ref(generateFortune(0))
 const shaking = ref(false)
 const sharing = ref(false)
 const cardRef = ref<HTMLElement | null>(null)
-const cardBgUrl = '/tools/fortune-card-bg.png'
+const cardBgUrl = assetUrl('/tools/fortune-card-bg.png')
 
 function reroll() {
   if (shaking.value) return

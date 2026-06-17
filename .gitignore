@@ -1,33 +1,51 @@
-# 依赖
+# Dependencies
 node_modules/
-__pycache__/
-*.pyc
+frontend/node_modules/
+backend/.venv/
 .venv/
+__pycache__/
+*.py[cod]
 
-# 构建产物
-frontend/dist/
-
-# 环境变量（含密钥，绝对不提交）
+# Environment and secrets
 .env
+.env.*
+!.env.example
 backend/.env
 frontend/.env.local
 
-# 一次性迁移脚本（含硬编码数据库凭据，不进仓库）
+# Build outputs
+dist/
+frontend/dist/
+frontend/dist*.tar.gz
+*.tsbuildinfo
+
+# Deployment temp files
+tmp_deploy/
+tmp_blog_location_new.conf
+*.tar.gz
 backend/scripts/
 
-# 大文件：程序压缩包（手动上传到服务器，不进仓库）
-frontend/public/exes/*.zip
+# Persistent runtime assets: kept on the server, not in Git deploy uploads
+photos/
+exes/
+frontend/public/photos/
+frontend/public/exes/
 
-# Claude Code 本地记忆（个人数据，不进仓库）
+# Internal deployment / agent notes
+DEPLOY.md
+DEPLOYMENT-CURRENT.md
+PROGRESS.md
+QI_BLOG_AGENT_PROMPT.md
+
+# Local tool state
 .claude/
 
-# Vite 日志
+# Logs
+*.log
 frontend/vite.*.log
 
-# 系统文件
+# OS and editor files
 .DS_Store
 Thumbs.db
-
-# IDE
 .vscode/
 .idea/

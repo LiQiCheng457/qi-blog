@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import NavBar from '@/components/NavBar.vue'
 import QiMascot from '@/components/QiMascot.vue'
@@ -12,15 +12,37 @@ import { isPageLoading } from '@/router'
 const userStore = useUserStore()
 const route   = useRoute()
 const isAdmin = computed(() => route.path.startsWith('/admin'))
+const isBlog2048 = computed(() => route.name === 'blog2048')
+const isMobile = ref(false)
+let mobileQuery: MediaQueryList | null = null
 
 const showChat   = ref(false)
 const showBubble = ref(false)
+const hideFloatingTools = computed(() => isBlog2048.value && isMobile.value)
 
 onMounted(() => {
   userStore.init()
+  mobileQuery = window.matchMedia('(max-width: 768px)')
+  isMobile.value = mobileQuery.matches
+  mobileQuery.addEventListener('change', onMobileChange)
   setTimeout(() => { showBubble.value = true }, 2000)
   setTimeout(() => { showBubble.value = false }, 7000)
 })
+
+onBeforeUnmount(() => {
+  mobileQuery?.removeEventListener('change', onMobileChange)
+})
+
+watch(hideFloatingTools, hidden => {
+  if (hidden) {
+    showChat.value = false
+    showBubble.value = false
+  }
+})
+
+function onMobileChange(e: MediaQueryListEvent) {
+  isMobile.value = e.matches
+}
 
 function toggleChat() {
   showChat.value = !showChat.value
@@ -42,7 +64,7 @@ function toggleChat() {
 
   <LoadingOverlay :show="isPageLoading" />
 
-  <template v-if="!isAdmin">
+  <template v-if="!isAdmin && !hideFloatingTools">
     <!-- 水豚聊天触发器 -->
     <div class="qi-fixed-mascot" @click="toggleChat">
       <!-- 气泡邀请 -->

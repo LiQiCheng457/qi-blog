@@ -2,15 +2,13 @@
 import { ref, computed, onMounted } from 'vue'
 import { use }           from 'echarts/core'
 import { CanvasRenderer }  from 'echarts/renderers'
-import { LineChart, BarChart, PieChart, RadarChart } from 'echarts/charts'
+import { LineChart, RadarChart } from 'echarts/charts'
 import {
-  GridComponent, TooltipComponent, LegendComponent,
-  DataZoomComponent, RadarComponent,
+  GridComponent, TooltipComponent, RadarComponent,
 } from 'echarts/components'
 import VChart from 'vue-echarts'
 
-use([CanvasRenderer, LineChart, BarChart, PieChart, RadarChart,
-     GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, RadarComponent])
+use([CanvasRenderer, LineChart, RadarChart, GridComponent, TooltipComponent, RadarComponent])
 
 import { postsApi }    from '@/api/posts'
 import { projectsApi } from '@/api/projects'

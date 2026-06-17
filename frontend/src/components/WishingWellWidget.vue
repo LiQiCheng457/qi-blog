@@ -2,8 +2,9 @@
 import { ref, onMounted } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { wishesApi, type Wish } from '@/api/wishes'
+import { assetUrl } from '@/utils/assets'
 
-const wellBgUrl = '/tools/wishing-well-bg.png'
+const wellBgUrl = assetUrl('/tools/wishing-well-bg.png')
 const user = useUserStore()
 
 const stats     = ref<{ total: number }>({ total: 0 })

@@ -1,12 +1,16 @@
 <script setup lang="ts">
+import { assetUrl } from '@/utils/assets'
+
 defineProps<{ show: boolean }>()
+
+const qiWindUrl = assetUrl('/animations/qi_wind_medium.webp')
 </script>
 
 <template>
   <Transition name="qi-loading">
     <div v-if="show" class="loading-wrap">
       <div class="loading-inner">
-        <img src="/animations/qi_wind_medium.webp" alt="" class="loading-mascot" />
+        <img :src="qiWindUrl" alt="" class="loading-mascot" />
         <p class="loading-text">起风了</p>
         <div class="loading-dots">
           <span></span><span></span><span></span>
