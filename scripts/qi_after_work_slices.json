@@ -1,0 +1,74 @@
+{
+  "sheets": [
+    {
+      "source": "frontend/public/games/qi-after-work/characters/Qi_Emotion_States.png",
+      "output_dir": "frontend/public/games/qi-after-work/assets/emotes",
+      "slices": [
+        { "output": "qi-surprised.png", "box": [0, 0, 627, 627], "padding": 8 },
+        { "output": "qi-happy.png", "box": [627, 0, 1254, 627], "padding": 8 },
+        { "output": "qi-sleepy.png", "box": [0, 627, 627, 1254], "padding": 8 },
+        { "output": "qi-overwhelmed.png", "box": [627, 627, 1254, 1254], "padding": 8 }
+      ]
+    },
+    {
+      "source": "frontend/public/games/qi-after-work/effects/Environment_Effects.png",
+      "output_dir": "frontend/public/games/qi-after-work/assets/effects",
+      "slices": [
+        { "output": "rain.png", "box": [0, 0, 420, 560], "padding": 8 },
+        { "output": "sunbeam.png", "box": [385, 0, 860, 560], "padding": 8 },
+        { "output": "thundercloud.png", "box": [830, 0, 1254, 390], "padding": 8 },
+        { "output": "sleep.png", "box": [0, 560, 340, 850], "padding": 8 },
+        { "output": "surprised.png", "box": [320, 560, 540, 860], "padding": 8 },
+        { "output": "question.png", "box": [515, 560, 755, 860], "padding": 8 },
+        { "output": "sweat.png", "box": [735, 560, 960, 860], "padding": 8 },
+        { "output": "hearts.png", "box": [940, 560, 1254, 860], "padding": 8 },
+        { "output": "sparkles.png", "box": [0, 835, 830, 1254], "padding": 8 },
+        { "output": "game-pixels.png", "box": [810, 835, 1254, 1254], "padding": 8 }
+      ]
+    },
+    {
+      "source": "frontend/public/games/qi-after-work/props/Interactive_Furniture.png",
+      "output_dir": "frontend/public/games/qi-after-work/assets/props",
+      "slices": [
+        { "output": "desk-off.png", "box": [90, 0, 440, 210], "remove_checkerboard": true },
+        { "output": "desk-working.png", "box": [460, 0, 850, 210], "remove_checkerboard": true },
+        { "output": "desk-error.png", "box": [850, 0, 1230, 210], "remove_checkerboard": true },
+        { "output": "desk-done.png", "box": [1220, 0, 1672, 210], "remove_checkerboard": true },
+        { "output": "fridge-closed.png", "box": [90, 200, 430, 420], "remove_checkerboard": true },
+        { "output": "fridge-full.png", "box": [440, 200, 850, 420], "remove_checkerboard": true },
+        { "output": "fridge-empty.png", "box": [850, 200, 1230, 420], "remove_checkerboard": true },
+        { "output": "fridge-fruit.png", "box": [1220, 200, 1672, 420], "remove_checkerboard": true },
+        { "output": "console-off.png", "box": [90, 400, 430, 565], "remove_checkerboard": true },
+        { "output": "console-playing.png", "box": [440, 400, 850, 565], "remove_checkerboard": true },
+        { "output": "console-win.png", "box": [850, 400, 1230, 565], "remove_checkerboard": true },
+        { "output": "console-lose.png", "box": [1220, 400, 1672, 565], "remove_checkerboard": true },
+        { "output": "door-closed.png", "box": [90, 540, 430, 740], "remove_checkerboard": true },
+        { "output": "door-light.png", "box": [440, 540, 850, 740], "remove_checkerboard": true },
+        { "output": "door-package.png", "box": [850, 540, 1230, 740], "remove_checkerboard": true },
+        { "output": "bookshelf-base.png", "box": [90, 735, 430, 941], "remove_checkerboard": true },
+        { "output": "bookshelf-some.png", "box": [440, 735, 850, 941], "remove_checkerboard": true },
+        { "output": "bookshelf-full.png", "box": [850, 735, 1230, 941], "remove_checkerboard": true }
+      ]
+    },
+    {
+      "source": "frontend/public/games/qi-after-work/collectibles/Fruit_and_Room_Collectibles.png",
+      "output_dir": "frontend/public/games/qi-after-work/assets/collectibles",
+      "slices": [
+        { "output": "watermelon.png", "box": [55, 45, 300, 230], "trim": false },
+        { "output": "strawberry.png", "box": [315, 35, 525, 235], "trim": false },
+        { "output": "grapes.png", "box": [535, 35, 735, 235], "trim": false },
+        { "output": "orange.png", "box": [735, 35, 960, 235], "trim": false },
+        { "output": "star-fruit.png", "box": [970, 25, 1215, 235], "trim": false },
+        { "output": "headphones.png", "box": [295, 255, 530, 435], "trim": false },
+        { "output": "keyboard.png", "box": [525, 255, 810, 435], "trim": false },
+        { "output": "notepad.png", "box": [810, 255, 1025, 435], "trim": false },
+        { "output": "sleep-pillow.png", "box": [535, 635, 790, 820], "trim": false },
+        { "output": "backpack.png", "box": [785, 635, 1010, 820], "trim": false },
+        { "output": "parcel.png", "box": [1010, 635, 1240, 820], "trim": false },
+        { "output": "photo.png", "box": [100, 825, 330, 1000], "trim": false },
+        { "output": "trophy.png", "box": [340, 810, 520, 1000], "trim": false },
+        { "output": "mystery-box.png", "box": [790, 810, 1000, 1000], "trim": false }
+      ]
+    }
+  ]
+}

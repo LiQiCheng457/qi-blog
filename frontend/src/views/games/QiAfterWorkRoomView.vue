@@ -1,17 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { assetUrl } from '@/utils/assets'
+import { roomApi, type RoomSpotId } from '@/api/room'
+import { useUserStore } from '@/stores/user'
 
 type RoomAction = {
   id: string
   label: string
   detail: string
   result: string
-  energy: number
-  mood: number
-  stress: number
-  taskId?: string
 }
 
 type RoomSpot = {
@@ -22,153 +20,358 @@ type RoomSpot = {
   y: number
   width: number
   height: number
+  arrivalX: number
+  arrivalY: number
   actions: RoomAction[]
 }
 
 const router = useRouter()
+const userStore = useUserStore()
 const roomImage = assetUrl('/games/qi-after-work/room/Room_Base.png')
+const qiIdleImage = assetUrl('/games/qi-after-work/characters/Qi_Idle.png')
 
-const energy = ref(72)
-const mood = ref(66)
-const stress = ref(28)
-const hour = ref(9)
-const minute = ref(0)
 const selectedSpotId = ref<string | null>(null)
-const showTasks = ref(false)
-const showSummary = ref(false)
 const lastResult = ref('')
-const completedActions = ref<string[]>([])
+const roomQuestion = ref('')
+const roomLoading = ref(false)
+const activeEmote = ref<string | null>(null)
+const activeEffect = ref<string | null>(null)
+const menuOpen = ref(false)
+const activeTool = ref<'status' | 'collection' | 'memory' | 'emotions' | 'achievements' | null>(null)
+const furnitureStates = ref<Record<string, string>>({})
+const discoveredItems = ref<string[]>([])
+const memories = ref<{ id: string; title: string; detail: string; createdAt: string }[]>([])
+const achievements = ref<string[]>([])
 let resultTimer: ReturnType<typeof window.setTimeout> | undefined
-
-const tasks = ref([
-  { id: 'bug', label: '处理一个难缠的 Bug', note: '书桌', done: false },
-  { id: 'note', label: '写下一段今天的想法', note: '书桌', done: false },
-  { id: 'rest', label: '给自己留一点空白', note: '沙发或窗边', done: false },
-])
+let moveTimer: ReturnType<typeof window.setTimeout> | undefined
+let emoteTimer: ReturnType<typeof window.setTimeout> | undefined
+let effectTimer: ReturnType<typeof window.setTimeout> | undefined
+const qiPosition = ref({ x: 50, y: 76 })
+const qiMoving = ref(false)
+const qiFacingLeft = ref(false)
 
 onMounted(() => {
   document.body.classList.add('qi-after-work-active')
+  loadRoomState()
 })
 
 onUnmounted(() => {
   document.body.classList.remove('qi-after-work-active')
   if (resultTimer) window.clearTimeout(resultTimer)
+  if (moveTimer) window.clearTimeout(moveTimer)
+  if (emoteTimer) window.clearTimeout(emoteTimer)
+  if (effectTimer) window.clearTimeout(effectTimer)
 })
+
+const stateKey = computed(() => `qi-after-work-state:${userStore.profile?.id ?? 'guest'}`)
+const stateAsset = (name: string) => assetUrl(`/games/qi-after-work/assets/props/${name}.png`)
+const effectAsset = (name: string) => assetUrl(`/games/qi-after-work/assets/effects/${name}.png`)
+const collectibleAsset = (name: string) => assetUrl(`/games/qi-after-work/assets/collectibles/${name}.png`)
+
+const statusItems = [
+  { id: 'desk', label: '书桌', states: ['desk-off', 'desk-working', 'desk-error', 'desk-done'] },
+  { id: 'fridge', label: '冰箱', states: ['fridge-closed', 'fridge-full', 'fridge-empty', 'fridge-fruit'] },
+  { id: 'console', label: '游戏机', states: ['console-off', 'console-playing', 'console-win', 'console-lose'] },
+  { id: 'door', label: '门口', states: ['door-closed', 'door-light', 'door-package'] },
+  { id: 'bookshelf', label: '书架', states: ['bookshelf-base', 'bookshelf-some', 'bookshelf-full'] },
+]
+
+const collectibleItems = [
+  ['watermelon', '西瓜切片'], ['strawberry', '草莓'], ['grapes', '紫葡萄'], ['orange', '橙子'], ['star-fruit', '星星水果'],
+  ['headphones', '耳机'], ['keyboard', '机械键盘'], ['notepad', '便签本'], ['sleep-pillow', '睡眠枕'], ['backpack', '背包'],
+  ['parcel', '神秘包裹'], ['photo', '旧照片'], ['trophy', '小奖杯'], ['mystery-box', '未知盒子'],
+] as const
+
+const effectImages: Record<string, string> = {
+  rain: effectAsset('rain'),
+  pixels: effectAsset('game-pixels'),
+  hearts: effectAsset('hearts'),
+  sparkles: effectAsset('sparkles'),
+  sunbeam: effectAsset('sunbeam'),
+  question: effectAsset('question'),
+  sleep: effectAsset('sleep'),
+  surprised: effectAsset('surprised'),
+  sweat: effectAsset('sweat'),
+  thundercloud: effectAsset('thundercloud'),
+}
+
+const moodActions = [
+  { id: 'praise', label: '夸夸祁', spotId: 'sofa' as RoomSpotId, message: '我想夸夸你。', emote: 'happy', effect: 'hearts' },
+  { id: 'comfort', label: '安慰一下', spotId: 'bed' as RoomSpotId, message: '今天辛苦了，休息一下吧。', emote: 'sleepy', effect: 'sleep' },
+  { id: 'thought', label: '在想什么', spotId: 'desk' as RoomSpotId, message: '你现在在想什么？', emote: 'overwhelmed', effect: 'question' },
+  { id: 'play', label: '一起玩', spotId: 'desk' as RoomSpotId, message: '要不要一起玩一会儿？', emote: 'happy', effect: 'pixels' },
+]
+
+const achievementItems = [
+  { id: 'first-action', title: '第一次互动', detail: '完成一次房间互动', icon: 'trophy' },
+  { id: 'first-memory', title: '留下记忆', detail: '在今日记忆中留下记录', icon: 'photo' },
+  { id: 'five-collectibles', title: '小小收藏家', detail: '收集 5 件房间物品', icon: 'mystery-box' },
+  { id: 'all-collectibles', title: '房间寻宝王', detail: '收集全部房间物品', icon: 'trophy' },
+]
+
+function loadRoomState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(stateKey.value) ?? '{}')
+    furnitureStates.value = saved.furnitureStates ?? {}
+    discoveredItems.value = saved.discoveredItems ?? []
+    memories.value = saved.memories ?? []
+    achievements.value = saved.achievements ?? []
+  } catch {
+    furnitureStates.value = {}
+    discoveredItems.value = []
+    memories.value = []
+    achievements.value = []
+  }
+}
+
+function saveRoomState() {
+  localStorage.setItem(stateKey.value, JSON.stringify({
+    furnitureStates: furnitureStates.value,
+    discoveredItems: discoveredItems.value,
+    memories: memories.value.slice(0, 30),
+    achievements: achievements.value,
+  }))
+}
+
+function unlockItem(id: string) {
+  if (!discoveredItems.value.includes(id)) discoveredItems.value.push(id)
+  if (discoveredItems.value.length === collectibleItems.length && !achievements.value.includes('all-collectibles')) {
+    achievements.value.push('all-collectibles')
+  }
+}
+
+function addMemory(title: string, detail: string) {
+  memories.value.unshift({ id: `${Date.now()}-${Math.random()}`, title, detail, createdAt: new Date().toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) })
+  memories.value = memories.value.slice(0, 30)
+  if (!achievements.value.includes('first-memory')) achievements.value.push('first-memory')
+  saveRoomState()
+}
+
+function updateFurniture(id: string, state: string) {
+  furnitureStates.value[id] = state
+  saveRoomState()
+}
+
+function showEffect(name: string) {
+  activeEffect.value = effectImages[name] ?? null
+  if (effectTimer) window.clearTimeout(effectTimer)
+  effectTimer = window.setTimeout(() => { activeEffect.value = null }, 2600)
+}
+
+function openTool(tool: typeof activeTool.value) {
+  activeTool.value = activeTool.value === tool ? null : tool
+  menuOpen.value = true
+}
+
+function closeTool() {
+  activeTool.value = null
+  menuOpen.value = false
+}
+
+async function runMoodAction(action: typeof moodActions[number]) {
+  activeTool.value = null
+  menuOpen.value = false
+  showEmote(action.spotId, action.emote)
+  showEffect(action.effect)
+  addMemory('和水豚祁聊了聊', action.label)
+  if (!achievements.value.includes('first-action')) achievements.value.push('first-action')
+  saveRoomState()
+  await askQi(action.spotId, undefined, action.message)
+  resultTimer = window.setTimeout(() => { lastResult.value = '' }, 7200)
+}
+
+watch(() => userStore.profile?.id, loadRoomState)
 
 const spots: RoomSpot[] = [
   {
-    id: 'window', name: '窗边', hint: '看看外面', x: 1, y: 5, width: 11, height: 48,
+    id: 'window', name: '窗边', hint: '看看外面', x: 1, y: 5, width: 11, height: 48, arrivalX: 13, arrivalY: 75,
     actions: [
-      { id: 'window-rest', label: '看一会儿天空', detail: '让脑袋安静下来。', result: '窗外的云走得很慢，事情也可以慢一点。', energy: 0, mood: 7, stress: -10, taskId: 'rest' },
+      { id: 'window-rest', label: '看一会儿天空', detail: '让脑袋安静下来。', result: '窗外的云走得很慢，事情也可以慢一点。' },
     ],
   },
   {
-    id: 'fridge', name: '冰箱', hint: '找点吃的', x: 31, y: 25, width: 10, height: 32,
+    id: 'fridge', name: '冰箱', hint: '找点吃的', x: 31, y: 25, width: 10, height: 32, arrivalX: 38, arrivalY: 75,
     actions: [
-      { id: 'fridge-fruit', label: '吃一块水果', detail: '西瓜听起来不错。', result: '冰凉的水果让心情恢复了一点。', energy: 8, mood: 9, stress: -3 },
-      { id: 'fridge-water', label: '喝杯水', detail: '短暂补充一下。', result: '喝完水，感觉稍微清醒了。', energy: 4, mood: 1, stress: -2 },
+      { id: 'fridge-fruit', label: '吃一块水果', detail: '西瓜听起来不错。', result: '冰凉的水果让心情恢复了一点。' },
+      { id: 'fridge-water', label: '喝杯水', detail: '短暂补充一下。', result: '喝完水，感觉稍微清醒了。' },
     ],
   },
   {
-    id: 'sofa', name: '沙发', hint: '休息一下', x: 40, y: 39, width: 17, height: 20,
+    id: 'sofa', name: '沙发', hint: '休息一下', x: 40, y: 39, width: 17, height: 20, arrivalX: 49, arrivalY: 75,
     actions: [
-      { id: 'sofa-rest', label: '发一会儿呆', detail: '不做任何事也是安排。', result: '沙发非常理解今天的你。', energy: 7, mood: 5, stress: -8, taskId: 'rest' },
-      { id: 'sofa-music', label: '听一首歌', detail: '只听一首。', result: '这一首歌正好听完，没有循环到忘记时间。', energy: 0, mood: 10, stress: -4 },
+      { id: 'sofa-rest', label: '发一会儿呆', detail: '不做任何事也是安排。', result: '沙发非常理解今天的你。' },
+      { id: 'sofa-music', label: '听一首歌', detail: '只听一首。', result: '这一首歌正好听完，没有循环到忘记时间。' },
     ],
   },
   {
-    id: 'desk', name: '书桌', hint: '处理点事情', x: 57, y: 34, width: 15, height: 25,
+    id: 'desk', name: '书桌', hint: '处理点事情', x: 57, y: 34, width: 15, height: 25, arrivalX: 65, arrivalY: 75,
     actions: [
-      { id: 'desk-code', label: '修一个 Bug', detail: '先从最奇怪的报错开始。', result: 'Bug 暂时安静了，至少看起来是这样。', energy: -13, mood: 4, stress: 9, taskId: 'bug' },
-      { id: 'desk-note', label: '写一点东西', detail: '把脑袋里的碎片记下来。', result: '写下来的想法好像比刚才完整了一点。', energy: -8, mood: 8, stress: 1, taskId: 'note' },
+      { id: 'desk-code', label: '看看电脑', detail: '屏幕好像还亮着。', result: '水豚祁盯着屏幕看了一会儿，像是在思考什么。' },
+      { id: 'desk-note', label: '翻翻桌面便签', detail: '上面可能有没说完的话。', result: '便签上写着：先喝水，再决定要不要继续。' },
     ],
   },
   {
-    id: 'bookshelf', name: '书架', hint: '翻翻收藏', x: 72, y: 16, width: 9, height: 46,
+    id: 'bookshelf', name: '书架', hint: '翻翻收藏', x: 72, y: 16, width: 9, height: 46, arrivalX: 75, arrivalY: 76,
     actions: [
-      { id: 'bookshelf-read', label: '随便翻一本书', detail: '不需要读完。', result: '翻到一页很适合今天的话。', energy: 1, mood: 5, stress: -5 },
+      { id: 'bookshelf-read', label: '抽出一本书', detail: '不需要读完。', result: '书页里夹着一张旧票根。水豚祁似乎记得那天。' },
     ],
   },
   {
-    id: 'bed', name: '床', hint: '躺一下', x: 81, y: 39, width: 18, height: 26,
+    id: 'bed', name: '床', hint: '躺一下', x: 81, y: 39, width: 18, height: 26, arrivalX: 87, arrivalY: 77,
     actions: [
-      { id: 'bed-nap', label: '睡个短觉', detail: '定好闹钟，真的。', result: '醒来时没有错过整个下午，真难得。', energy: 18, mood: 4, stress: -12 },
-      { id: 'bed-sleep', label: '今天先到这里', detail: '把剩下的事交给明天。', result: '水豚祁决定先睡觉，明天的事情明天再说。', energy: 25, mood: 7, stress: -18 },
+      { id: 'bed-nap', label: '坐在床边', detail: '被子看起来很适合躺一下。', result: '水豚祁看了看床，又看了看你，似乎在等一句允许。' },
+      { id: 'bed-sleep', label: '看看枕头', detail: '也许会发现一场梦的线索。', result: '枕头下藏着一颗小小的水果糖。' },
     ],
   },
   {
-    id: 'door', name: '门口', hint: '看看有什么动静', x: 17, y: 17, width: 10, height: 39,
+    id: 'door', name: '门口', hint: '看看有什么动静', x: 17, y: 17, width: 10, height: 39, arrivalX: 26, arrivalY: 75,
     actions: [
-      { id: 'door-package', label: '去拿快递', detail: '希望不是新的安排。', result: '是一个小包裹，不是临时会议。', energy: -3, mood: 7, stress: -2 },
+      { id: 'door-package', label: '看看门外', detail: '走廊里似乎有一点动静。', result: '门外没有人，只有一阵很轻的风。' },
     ],
   },
 ]
 
 const selectedSpot = computed(() => spots.find((spot) => spot.id === selectedSpotId.value) ?? null)
-const doneTaskCount = computed(() => tasks.value.filter((task) => task.done).length)
-const dayGrade = computed(() => {
-  const score = doneTaskCount.value * 20 + Math.round(mood.value * .35) + Math.round(energy.value * .15) - Math.round(stress.value * .25)
-  if (score >= 85) return '今天过得很好'
-  if (score >= 60) return '今天也算顺利'
-  return '今天辛苦了'
-})
+const bubbleOnLeft = computed(() => qiPosition.value.x > 62)
+const bubbleStyle = computed(() => ({
+  left: `${qiPosition.value.x}%`,
+  top: `calc(${qiPosition.value.y}% - clamp(150px, 16vw, 270px))`,
+}))
 
-const timeLabel = computed(() => `${String(hour.value).padStart(2, '0')}:${String(minute.value).padStart(2, '0')}`)
-const phase = computed(() => {
-  if (hour.value < 12) return '早晨'
-  if (hour.value < 17) return '午后'
-  if (hour.value < 20) return '傍晚'
-  return '夜晚'
-})
+const emoteImages: Record<string, string> = {
+  surprised: assetUrl('/games/qi-after-work/assets/emotes/qi-surprised.png'),
+  happy: assetUrl('/games/qi-after-work/assets/emotes/qi-happy.png'),
+  sleepy: assetUrl('/games/qi-after-work/assets/emotes/qi-sleepy.png'),
+  overwhelmed: assetUrl('/games/qi-after-work/assets/emotes/qi-overwhelmed.png'),
+}
 
-function cap(value: number) {
-  return Math.max(0, Math.min(100, value))
+const spotEmotes: Record<RoomSpotId, string> = {
+  window: 'surprised',
+  fridge: 'happy',
+  sofa: 'sleepy',
+  desk: 'overwhelmed',
+  bookshelf: 'surprised',
+  bed: 'sleepy',
+  door: 'surprised',
+}
+
+function showEmote(spotId: RoomSpotId, emote = spotEmotes[spotId]) {
+  activeEmote.value = emoteImages[emote] ?? emoteImages.surprised
+  if (emoteTimer) window.clearTimeout(emoteTimer)
+  emoteTimer = window.setTimeout(() => { activeEmote.value = null }, 3000)
+}
+
+function moveQi(x: number, y: number, onArrive?: () => void) {
+  if (moveTimer) window.clearTimeout(moveTimer)
+  const distance = Math.abs(x - qiPosition.value.x) + Math.abs(y - qiPosition.value.y)
+  qiFacingLeft.value = x < qiPosition.value.x
+  qiMoving.value = true
+  qiPosition.value = { x, y }
+  const duration = Math.min(2800, Math.max(900, distance * 65))
+  moveTimer = window.setTimeout(() => {
+    qiMoving.value = false
+    onArrive?.()
+  }, duration)
 }
 
 function selectSpot(id: string) {
-  selectedSpotId.value = id
-}
-
-function advanceTime(hours = 1) {
-  const total = hour.value * 60 + minute.value + hours * 60
-  hour.value = Math.min(23, Math.floor(total / 60) % 24)
-  minute.value = total % 60
-}
-
-function runAction(action: RoomAction) {
-  energy.value = cap(energy.value + action.energy)
-  mood.value = cap(mood.value + action.mood)
-  stress.value = cap(stress.value + action.stress)
-  advanceTime(action.id === 'bed-sleep' ? 3 : 1)
-  completedActions.value.unshift(`${timeLabel.value} · ${action.label}`)
-  completedActions.value = completedActions.value.slice(0, 8)
-  if (action.taskId) {
-    const task = tasks.value.find((item) => item.id === action.taskId)
-    if (task) task.done = true
-  }
-  lastResult.value = action.result
-  if (resultTimer) window.clearTimeout(resultTimer)
-  resultTimer = window.setTimeout(() => { lastResult.value = '' }, 3200)
+  const spot = spots.find((item) => item.id === id)
+  if (!spot) return
   selectedSpotId.value = null
-
-  if (action.id === 'bed-sleep' || hour.value >= 22) {
-    window.setTimeout(() => { showSummary.value = true }, 180)
-  }
-}
-
-function restartDay() {
-  energy.value = 72
-  mood.value = 66
-  stress.value = 28
-  hour.value = 9
-  minute.value = 0
-  selectedSpotId.value = null
-  tasks.value.forEach((task) => { task.done = false })
-  completedActions.value = []
   lastResult.value = ''
+  moveQi(spot.arrivalX, spot.arrivalY, () => {
+    selectedSpotId.value = id
+    showEmote(id as RoomSpotId)
+  })
+}
+
+function walkToFloor(event: MouseEvent) {
+  if ((event.target as HTMLElement).closest('.room-hotspot, .action-panel, .room-menu, .room-tool-panel, .game-header')) return
+  const stage = event.currentTarget as HTMLElement
+  const rect = stage.getBoundingClientRect()
+  const x = Math.max(7, Math.min(93, ((event.clientX - rect.left) / rect.width) * 100))
+  const y = Math.max(67, Math.min(91, ((event.clientY - rect.top) / rect.height) * 100))
+  selectedSpotId.value = null
+  lastResult.value = ''
+  moveQi(x, y)
+}
+
+async function askQi(spotId: RoomSpotId, actionId?: string, message = '') {
+  if (!userStore.isLoggedIn) {
+    lastResult.value = '水豚祁歪了歪头：先登录，再慢慢聊吧。'
+    return
+  }
+
+  roomLoading.value = true
+  lastResult.value = '…'
+  showEmote(spotId)
+  try {
+    let receivedFirstChunk = false
+    await roomApi.chatStream({ spotId, actionId, message }, (chunk) => {
+      if (!receivedFirstChunk) {
+        lastResult.value = ''
+        receivedFirstChunk = true
+      }
+      lastResult.value += chunk
+    })
+  } catch (error) {
+    lastResult.value = error instanceof Error ? error.message : '水豚祁现在没有接上信号，请稍后再试。'
+  } finally {
+    roomLoading.value = false
+  }
+}
+
+async function runAction(action: RoomAction) {
+  const spotId = selectedSpot.value?.id as RoomSpotId | undefined
+  if (!spotId) return
+  lastResult.value = action.result
+  const stateMap: Record<string, [string, string, string?, string?]> = {
+    'fridge-fruit': ['fridge', 'fridge-fruit', 'watermelon', 'happy'],
+    'fridge-water': ['fridge', 'fridge-full', undefined, 'happy'],
+    'desk-code': ['desk', 'desk-working', undefined, 'overwhelmed'],
+    'desk-note': ['desk', 'desk-done', 'notepad', 'happy'],
+    'bookshelf-read': ['bookshelf', 'bookshelf-some', 'photo', 'surprised'],
+    'bed-nap': ['bed', 'bed-rest', 'sleep-pillow', 'sleepy'],
+    'bed-sleep': ['bed', 'bed-sleep', undefined, 'sleepy'],
+    'door-package': ['door', 'door-package', 'parcel', 'surprised'],
+    'sofa-rest': ['sofa', 'sofa-rest', undefined, 'sleepy'],
+    'sofa-music': ['sofa', 'sofa-music', 'headphones', 'happy'],
+    'window-rest': ['window', 'window-rest', undefined, 'surprised'],
+  }
+  const [stateId, state, collectible, emote] = stateMap[action.id] ?? []
+  if (stateId && state) updateFurniture(stateId, state)
+  if (collectible) unlockItem(collectible)
+  if (emote) showEmote(spotId, emote)
+  const actionEffects: Record<string, string> = {
+    'fridge-fruit': 'hearts',
+    'fridge-water': 'rain',
+    'sofa-music': 'sparkles',
+    'desk-code': 'sweat',
+    'desk-note': 'question',
+    'bookshelf-read': 'surprised',
+    'bed-sleep': 'sleep',
+    'window-rest': 'sunbeam',
+    'door-package': 'thundercloud',
+  }
+  if (actionEffects[action.id]) showEffect(actionEffects[action.id])
+  addMemory(selectedSpot.value?.name ?? '房间', action.label)
+  if (!achievements.value.includes('first-action')) achievements.value.push('first-action')
+  if (discoveredItems.value.length >= 5 && !achievements.value.includes('five-collectibles')) achievements.value.push('five-collectibles')
+  saveRoomState()
   if (resultTimer) window.clearTimeout(resultTimer)
-  showTasks.value = false
-  showSummary.value = false
+  selectedSpotId.value = null
+  await askQi(spotId, action.id)
+  resultTimer = window.setTimeout(() => { lastResult.value = '' }, 5200)
+}
+
+async function askFromRoom() {
+  const spotId = selectedSpot.value?.id as RoomSpotId | undefined
+  const message = roomQuestion.value.trim()
+  if (!spotId || !message || roomLoading.value) return
+  roomQuestion.value = ''
+  selectedSpotId.value = null
+  await askQi(spotId, undefined, message)
+  resultTimer = window.setTimeout(() => { lastResult.value = '' }, 7200)
 }
 </script>
 
@@ -176,27 +379,66 @@ function restartDay() {
   <div class="after-work-page">
     <header class="game-header">
       <button class="icon-button" type="button" title="返回游戏区" aria-label="返回游戏区" @click="router.push('/games')">←</button>
-      <div class="game-title">
-        <p>水豚祁的房间</p>
-        <h1>下班计划</h1>
-      </div>
-      <div class="header-tools">
-        <button class="task-button" type="button" @click="showTasks = !showTasks">待办 {{ doneTaskCount }}/{{ tasks.length }}</button>
-        <button class="reset-button" type="button" title="重置今天" aria-label="重置今天" @click="restartDay">↻</button>
+      <div class="room-tools">
+        <button class="icon-button" type="button" title="房间菜单" aria-label="房间菜单" @click="menuOpen = !menuOpen">☰</button>
+        <aside v-if="menuOpen" class="room-menu" aria-label="房间功能菜单">
+          <button type="button" :class="{ active: activeTool === 'status' }" @click="openTool('status')">房间状态</button>
+          <button type="button" :class="{ active: activeTool === 'collection' }" @click="openTool('collection')">收藏图鉴</button>
+          <button type="button" :class="{ active: activeTool === 'memory' }" @click="openTool('memory')">今日记忆</button>
+          <button type="button" :class="{ active: activeTool === 'emotions' }" @click="openTool('emotions')">情绪互动</button>
+          <button type="button" :class="{ active: activeTool === 'achievements' }" @click="openTool('achievements')">成就</button>
+        </aside>
       </div>
     </header>
 
-    <section class="status-strip" aria-label="今日状态">
-      <div class="day-state"><span>{{ phase }}</span><strong>{{ timeLabel }}</strong></div>
-      <div class="stat"><span>精力</span><div><i :style="{ width: `${energy}%` }"></i></div><b>{{ energy }}</b></div>
-      <div class="stat mood"><span>心情</span><div><i :style="{ width: `${mood}%` }"></i></div><b>{{ mood }}</b></div>
-      <div class="stat stress"><span>压力</span><div><i :style="{ width: `${stress}%` }"></i></div><b>{{ stress }}</b></div>
-    </section>
-
     <main class="room-shell">
-      <div class="room-stage" :class="`phase-${phase}`">
+      <div class="room-stage" @click="walkToFloor">
         <img :src="roomImage" class="room-image" alt="水豚祁的房间" draggable="false" />
         <div class="sun-wash"></div>
+
+        <div
+          class="qi-character"
+          :class="{ moving: qiMoving, 'facing-left': qiFacingLeft }"
+          :style="{ left: `${qiPosition.x}%`, top: `${qiPosition.y}%` }"
+          aria-label="水豚祁"
+        >
+          <img :src="qiIdleImage" alt="水豚祁" draggable="false" />
+          <span v-if="qiMoving">走走…</span>
+        </div>
+
+        <Transition name="qi-emote">
+          <img
+            v-if="activeEmote && !selectedSpot"
+            class="qi-emote"
+            :src="activeEmote"
+            alt=""
+            aria-hidden="true"
+            :style="{ left: `${qiPosition.x}%`, top: `calc(${qiPosition.y}% - clamp(100px, 11vw, 180px))` }"
+          />
+        </Transition>
+
+        <Transition name="room-effect">
+          <img
+            v-if="activeEffect"
+            :src="activeEffect"
+            class="room-effect"
+            alt=""
+            aria-hidden="true"
+            :style="{ left: `${qiPosition.x}%`, top: `calc(${qiPosition.y}% - clamp(150px, 16vw, 250px))` }"
+          />
+        </Transition>
+
+        <Transition name="qi-bubble">
+          <aside
+            v-if="lastResult && !selectedSpot"
+            class="qi-dialogue"
+            :class="{ 'qi-dialogue--left': bubbleOnLeft }"
+            :style="bubbleStyle"
+            aria-live="polite"
+          >
+            <p>{{ lastResult }}</p>
+          </aside>
+        </Transition>
 
         <button
           v-for="spot in spots"
@@ -221,41 +463,59 @@ function restartDay() {
               <strong>{{ action.label }}</strong>
               <span>{{ action.detail }}</span>
             </button>
+            <form class="room-question" @submit.prevent="askFromRoom">
+              <input v-model="roomQuestion" :disabled="roomLoading" maxlength="200" placeholder="问问水豚祁…" aria-label="向水豚祁提问" />
+              <button type="submit" :disabled="roomLoading || !roomQuestion.trim()">{{ roomLoading ? '…' : '问' }}</button>
+            </form>
           </aside>
         </Transition>
 
-        <Transition name="task-panel">
-          <aside v-if="showTasks" class="task-panel" aria-label="今日待办">
-            <div class="panel-heading">
-              <div><span>今天只做这些就够了</span><h2>今日待办</h2></div>
-              <button type="button" aria-label="关闭待办" @click="showTasks = false">×</button>
+        <Transition name="tool-panel">
+          <aside v-if="activeTool" class="room-tool-panel" aria-live="polite">
+            <div class="tool-heading">
+              <h2>{{ activeTool === 'status' ? '房间状态' : activeTool === 'collection' ? '收藏图鉴' : activeTool === 'memory' ? '今日记忆' : activeTool === 'emotions' ? '情绪互动' : '成就' }}</h2>
+              <button type="button" aria-label="关闭菜单" @click="closeTool">×</button>
             </div>
-            <ul>
-              <li v-for="task in tasks" :key="task.id" :class="{ done: task.done }">
-                <i>{{ task.done ? '✓' : '' }}</i>
-                <span><strong>{{ task.label }}</strong><small>{{ task.note }}</small></span>
-              </li>
-            </ul>
+
+            <div v-if="activeTool === 'status'" class="status-grid">
+              <article v-for="item in statusItems" :key="item.id" class="status-card">
+                <img :src="stateAsset(furnitureStates[item.id] ?? item.states[0])" :alt="item.label" />
+                <div><strong>{{ item.label }}</strong><small>当前状态</small></div>
+                <div class="state-options">
+                  <button v-for="state in item.states" :key="state" type="button" :class="{ active: (furnitureStates[item.id] ?? item.states[0]) === state }" :title="state" @click="updateFurniture(item.id, state)"></button>
+                </div>
+              </article>
+            </div>
+
+            <div v-else-if="activeTool === 'collection'">
+              <p class="collection-progress">已收集 {{ discoveredItems.length }} / {{ collectibleItems.length }}</p>
+              <div class="collection-grid">
+                <article v-for="item in collectibleItems" :key="item[0]" class="collection-item" :class="{ locked: !discoveredItems.includes(item[0]) }">
+                  <img :src="collectibleAsset(item[0])" :alt="discoveredItems.includes(item[0]) ? item[1] : '未知收藏'" />
+                  <span>{{ discoveredItems.includes(item[0]) ? item[1] : '未知收藏' }}</span>
+                </article>
+              </div>
+            </div>
+
+            <div v-else-if="activeTool === 'memory'" class="memory-list">
+              <p v-if="!memories.length" class="tool-empty">房间还没有新记忆。</p>
+              <article v-for="memory in memories" :key="memory.id" class="memory-item">
+                <time>{{ memory.createdAt }}</time><strong>{{ memory.title }}</strong><p>{{ memory.detail }}</p>
+              </article>
+            </div>
+
+            <div v-else-if="activeTool === 'emotions'" class="mood-grid">
+              <button v-for="action in moodActions" :key="action.id" class="mood-button" type="button" :disabled="roomLoading" @click="runMoodAction(action)">{{ action.label }}</button>
+            </div>
+
+            <div v-else class="achievement-list">
+              <article v-for="achievement in achievementItems" :key="achievement.id" class="achievement-item" :class="{ locked: !achievements.includes(achievement.id) }">
+                <img :src="collectibleAsset(achievement.icon)" alt="" /><div><strong>{{ achievement.title }}</strong><span>{{ achievement.detail }}</span></div>
+              </article>
+            </div>
           </aside>
         </Transition>
 
-        <Transition name="result-toast">
-          <p v-if="lastResult && !selectedSpot" class="result-toast">{{ lastResult }}</p>
-        </Transition>
-
-        <Transition name="summary">
-          <div v-if="showSummary" class="summary-mask" role="dialog" aria-modal="true" aria-label="今日结算">
-            <section class="summary-card">
-              <p class="summary-kicker">{{ phase }} · {{ timeLabel }}</p>
-              <h2>{{ dayGrade }}</h2>
-              <p class="summary-copy">完成 {{ doneTaskCount }}/{{ tasks.length }} 项待办，剩下的事可以留给明天。</p>
-              <div class="summary-stats"><span>精力 <b>{{ energy }}</b></span><span>心情 <b>{{ mood }}</b></span><span>压力 <b>{{ stress }}</b></span></div>
-              <div v-if="completedActions.length" class="summary-log"><p v-for="item in completedActions.slice(0, 4)" :key="item">{{ item }}</p></div>
-              <button type="button" @click="restartDay">开始新的一天</button>
-              <button type="button" class="summary-close" @click="showSummary = false">继续看看房间</button>
-            </section>
-          </div>
-        </Transition>
       </div>
     </main>
   </div>
@@ -265,15 +525,14 @@ function restartDay() {
 :global(body.qi-after-work-active),:global(body.qi-after-work-active #app),:global(body.qi-after-work-active main) { height:100dvh; overflow:hidden; }
 .after-work-page { position:relative; width:100%; height:100dvh; overflow:hidden; background:#ecbd7c; color:#5c422b; isolation:isolate; }
 .game-header { position:absolute; z-index:5; top:max(14px,env(safe-area-inset-top)); left:16px; right:16px; display:flex; align-items:center; justify-content:space-between; pointer-events:none; }
-.icon-button,.reset-button,.task-button { pointer-events:auto; border:1px solid rgba(255,249,234,.54); background:rgba(97,65,36,.28); box-shadow:0 4px 14px rgba(86,52,24,.16); color:#fffaf0; backdrop-filter:blur(7px); cursor:pointer; }
-.icon-button { display:grid; width:40px; height:40px; place-items:center; border-radius:50%; font-size:23px; line-height:1; }.header-tools { display:flex; align-items:center; gap:7px; pointer-events:auto; }.reset-button { display:grid; width:36px; height:36px; place-items:center; border-radius:50%; font-size:19px; line-height:1; }.task-button { padding:8px 10px; border-radius:6px; font-size:12px; }.icon-button:hover,.reset-button:hover,.task-button:hover { background:rgba(97,65,36,.45); }
-.game-title { position:absolute; left:50%; transform:translateX(-50%); min-width:150px; padding:6px 15px 7px; border:1px solid rgba(255,249,234,.38); border-radius:5px; background:rgba(255,250,237,.74); box-shadow:0 5px 16px rgba(89,55,23,.1); text-align:center; line-height:1.1; }.game-title p { margin:0 0 3px; font-size:10px; color:#9e7450; }.game-title h1 { margin:0; font:600 18px/1.1 'Noto Serif SC',serif; letter-spacing:0; }
-.status-strip { position:absolute; z-index:5; top:72px; left:50%; display:grid; width:min(610px,calc(100% - 32px)); grid-template-columns:116px repeat(3,1fr); gap:10px; align-items:center; padding:8px 11px; transform:translateX(-50%); border:1px solid rgba(255,249,234,.38); border-radius:6px; background:rgba(255,250,237,.78); box-shadow:0 6px 18px rgba(89,55,23,.1); backdrop-filter:blur(6px); }
-.day-state { display:flex; align-items:center; gap:8px; padding-right:10px; border-right:1px solid rgba(133,92,52,.14); }.day-state span { font-size:11px; color:#9d7857; }.day-state strong { font-size:16px; letter-spacing:0; }.stat { display:grid; grid-template-columns:28px 1fr 22px; align-items:center; gap:5px; font-size:11px; color:#8a674a; }.stat > div { height:6px; overflow:hidden; border-radius:20px; background:#f2dfc6; }.stat i { display:block; height:100%; border-radius:inherit; background:#e9a56d; transition:width .35s ease; }.stat b { font-size:11px; font-weight:600; color:#6d4a30; }.mood i { background:#e89b9b; }.stress i { background:#94b48a; }
-.room-shell { position:absolute; inset:0; z-index:0; }.room-stage { position:relative; width:100%; height:100%; overflow:hidden; background:#f4ddb9; isolation:isolate; }.room-image { display:block; width:100%; height:100%; object-fit:cover; object-position:center; user-select:none; }.sun-wash { position:absolute; inset:0; z-index:1; pointer-events:none; background:rgba(255,240,196,.03); transition:background .4s ease; }.phase-傍晚 .sun-wash { background:rgba(243,133,77,.16); mix-blend-mode:multiply; }.phase-夜晚 .sun-wash { background:rgba(35,57,94,.38); mix-blend-mode:multiply; }.phase-午后 .sun-wash { background:rgba(255,230,151,.05); }
-.room-hotspot { position:absolute; z-index:2; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:0; border:0; outline:0; background:transparent; color:#6b4630; cursor:pointer; }.room-hotspot span,.room-hotspot small { opacity:0; pointer-events:none; transition:opacity .16s ease,transform .16s ease; }.room-hotspot span { padding:2px 7px; border-radius:4px; background:rgba(255,251,241,.94); box-shadow:0 2px 8px rgba(92,58,29,.12); font-size:12px; font-weight:700; transform:translateY(3px); }.room-hotspot small { margin-top:3px; font-size:10px; color:#8a684d; }.room-hotspot:hover span,.room-hotspot:hover small,.room-hotspot:focus-visible span,.room-hotspot:focus-visible small { opacity:1; }.room-hotspot:hover span,.room-hotspot:focus-visible span { transform:translateY(0); }.room-hotspot:focus-visible { box-shadow:inset 0 0 0 2px rgba(255,250,235,.86); border-radius:4px; }
-.action-panel,.task-panel { position:absolute; z-index:6; width:min(330px,calc(100% - 40px)); padding:15px; border:1px solid rgba(255,249,234,.55); border-radius:7px; background:rgba(255,250,240,.94); box-shadow:0 15px 36px rgba(84,54,29,.23); backdrop-filter:blur(10px); }.action-panel { right:20px; bottom:22px; }.task-panel { top:128px; right:20px; }.panel-heading { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px; }.panel-heading span { font-size:11px; color:#ab805c; }.panel-heading h2 { margin:1px 0 0; font:600 19px/1.2 'Noto Serif SC',serif; }.panel-heading button { border:0; background:transparent; color:#987252; font-size:21px; line-height:1; cursor:pointer; }.action-button { display:block; width:100%; margin-top:7px; padding:10px 11px; border:1px solid rgba(152,104,61,.18); border-radius:5px; background:#fff6e8; color:#684631; text-align:left; cursor:pointer; }.action-button:hover { background:#ffebd2; border-color:rgba(178,108,58,.45); }.action-button strong,.action-button span { display:block; }.action-button strong { font-size:13px; }.action-button span { margin-top:2px; font-size:11px; color:#987456; }.task-panel ul { display:grid; gap:7px; margin:0; padding:0; list-style:none; }.task-panel li { display:flex; align-items:center; gap:9px; padding:8px; border:1px solid rgba(152,104,61,.12); border-radius:5px; }.task-panel li i { display:grid; width:17px; height:17px; place-items:center; flex:0 0 auto; border:1px solid #c9a67e; border-radius:50%; color:#fff; font-size:11px; font-style:normal; }.task-panel li.done { background:#f0f7e9; }.task-panel li.done i { border-color:#8fb17c; background:#8fb17c; }.task-panel li strong,.task-panel li small { display:block; }.task-panel li strong { font-size:12px; font-weight:600; }.task-panel li small { margin-top:1px; color:#9b795a; font-size:10px; }
-.result-toast { position:absolute; z-index:5; left:50%; bottom:25px; max-width:min(560px,calc(100% - 40px)); margin:0; padding:9px 13px; transform:translateX(-50%); border-left:3px solid #dfaa75; background:rgba(255,250,241,.9); box-shadow:0 5px 16px rgba(85,52,25,.15); color:#775239; font-size:13px; backdrop-filter:blur(6px); pointer-events:none; }.result-toast-enter-active,.result-toast-leave-active { transition:opacity .25s ease,transform .25s ease; }.result-toast-enter-from,.result-toast-leave-to { opacity:0; transform:translate(-50%,8px); }
-.summary-mask { position:absolute; z-index:10; inset:0; display:grid; place-items:center; padding:20px; background:rgba(68,48,30,.35); backdrop-filter:blur(3px); }.summary-card { width:min(390px,100%); padding:25px; border:1px solid rgba(157,107,61,.28); border-radius:8px; background:#fff9ee; box-shadow:0 18px 48px rgba(56,37,20,.3); text-align:center; }.summary-kicker { margin:0; color:#a77b54; font-size:12px; }.summary-card h2 { margin:7px 0; font:600 26px/1.2 'Noto Serif SC',serif; }.summary-copy { margin:0; color:#856345; font-size:13px; }.summary-stats { display:flex; justify-content:space-between; gap:7px; margin:17px 0 10px; padding:9px; border-radius:5px; background:#fff0dc; color:#9b7657; font-size:11px; }.summary-stats b { display:block; margin-top:2px; color:#65432c; font-size:15px; }.summary-log { margin:10px 0 16px; color:#987456; font-size:11px; text-align:left; }.summary-log p { margin:2px 0; }.summary-card > button { width:100%; padding:10px; border:0; border-radius:5px; background:#ca8756; color:#fff; font-size:13px; cursor:pointer; }.summary-card > button:hover { background:#b97649; }.summary-card .summary-close { margin-top:7px; background:transparent; color:#987456; }.summary-card .summary-close:hover { background:#f8ead6; }.summary-enter-active,.summary-leave-active,.task-panel-enter-active,.task-panel-leave-active,.action-panel-enter-active,.action-panel-leave-active { transition:opacity .2s ease,transform .2s ease; }.summary-enter-from,.summary-leave-to,.task-panel-enter-from,.task-panel-leave-to,.action-panel-enter-from,.action-panel-leave-to { opacity:0; transform:translateY(8px); }
-@media (max-width:720px) { .game-header { top:max(9px,env(safe-area-inset-top)); left:10px; right:10px; }.icon-button { width:36px; height:36px; font-size:21px; }.header-tools { gap:5px; }.task-button { padding:7px 8px; font-size:11px; }.reset-button { width:34px; height:34px; font-size:18px; }.game-title { min-width:132px; padding:5px 10px 6px; }.game-title h1 { font-size:16px; }.status-strip { top:57px; width:calc(100% - 20px); grid-template-columns:1fr 1fr; gap:6px 9px; padding:7px 9px; }.day-state { grid-column:1/-1; justify-content:center; padding:0 0 5px; border-right:0; border-bottom:1px solid rgba(133,92,52,.14); }.stat { grid-template-columns:27px 1fr 20px; gap:4px; }.room-image { object-position:center; }.action-panel { right:10px; bottom:18px; width:calc(100% - 20px); padding:12px; }.task-panel { top:128px; right:10px; width:calc(100% - 20px); padding:12px; }.result-toast { bottom:12px; font-size:12px; }.room-hotspot span { font-size:10px; padding:1px 4px; }.room-hotspot small { display:none; } }
+.room-shell { position:absolute; inset:0; z-index:0; }.room-stage { position:relative; width:100%; height:100%; overflow:hidden; background:#f4ddb9; isolation:isolate; }.room-image { display:block; width:100%; height:100%; object-fit:cover; object-position:center; user-select:none; }.sun-wash { position:absolute; inset:0; z-index:1; pointer-events:none; background:rgba(255,240,196,.03); }
+.qi-character { position:absolute; z-index:3; width:clamp(80px,7vw,135px); transform:translate(-50%,-100%); transition:left 1.35s cubic-bezier(.22,.78,.32,1),top 1.35s cubic-bezier(.22,.78,.32,1); pointer-events:none; filter:drop-shadow(0 6px 6px rgba(83,55,26,.2)); }.qi-character img { display:block; width:100%; height:auto; animation:qi-idle 2.6s ease-in-out infinite; transform-origin:center bottom; user-select:none; }.qi-character.facing-left img { transform:scaleX(-1); }.qi-character.moving img { animation:qi-walk .42s ease-in-out infinite alternate; }.qi-character span { position:absolute; top:-10px; left:50%; padding:2px 6px; transform:translateX(-50%); border-radius:4px; background:rgba(255,250,240,.86); color:#806046; font-size:10px; white-space:nowrap; }.qi-emote { position:absolute; z-index:4; width:clamp(72px,8vw,125px); transform:translate(-50%,-100%); pointer-events:none; filter:drop-shadow(0 5px 6px rgba(83,55,26,.13)); }.room-hotspot { position:absolute; z-index:2; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:0; border:0; outline:0; background:transparent; color:#6b4630; cursor:pointer; }.room-hotspot span,.room-hotspot small { opacity:0; pointer-events:none; transition:opacity .16s ease,transform .16s ease; }.room-hotspot span { padding:2px 7px; border-radius:4px; background:rgba(255,251,241,.94); box-shadow:0 2px 8px rgba(92,58,29,.12); font-size:12px; font-weight:700; transform:translateY(3px); }.room-hotspot small { margin-top:3px; font-size:10px; color:#8a684d; }.room-hotspot:hover span,.room-hotspot:hover small,.room-hotspot:focus-visible span,.room-hotspot:focus-visible small { opacity:1; }.room-hotspot:hover span,.room-hotspot:focus-visible span { transform:translateY(0); }.room-hotspot:focus-visible { box-shadow:inset 0 0 0 2px rgba(255,250,235,.86); border-radius:4px; }
+.icon-button { pointer-events:auto; display:grid; width:40px; height:40px; place-items:center; border:1px solid rgba(255,249,234,.54); border-radius:50%; background:rgba(97,65,36,.28); box-shadow:0 4px 14px rgba(86,52,24,.16); color:#fffaf0; font-size:23px; line-height:1; backdrop-filter:blur(7px); cursor:pointer; }.icon-button:hover { background:rgba(97,65,36,.45); }
+.room-tools { position:relative; pointer-events:auto; }.room-menu { position:absolute; top:48px; right:0; z-index:12; display:grid; width:126px; padding:5px; border:1px solid rgba(255,249,234,.62); border-radius:7px; background:rgba(255,250,240,.95); box-shadow:0 12px 28px rgba(84,54,29,.2); backdrop-filter:blur(10px); }.room-menu button { padding:8px 9px; border:0; border-radius:4px; background:transparent; color:#694a34; font:12px inherit; text-align:left; cursor:pointer; }.room-menu button:hover,.room-menu button.active { background:#ffead0; color:#9a5f39; }
+.action-panel { position:absolute; z-index:6; right:20px; bottom:22px; width:min(330px,calc(100% - 40px)); padding:15px; border:1px solid rgba(255,249,234,.55); border-radius:7px; background:rgba(255,250,240,.94); box-shadow:0 15px 36px rgba(84,54,29,.23); backdrop-filter:blur(10px); }.panel-heading { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px; }.panel-heading span { font-size:11px; color:#ab805c; }.panel-heading h2 { margin:1px 0 0; font:600 19px/1.2 'Noto Serif SC',serif; }.panel-heading button { border:0; background:transparent; color:#987252; font-size:21px; line-height:1; cursor:pointer; }.action-button { display:block; width:100%; margin-top:7px; padding:10px 11px; border:1px solid rgba(152,104,61,.18); border-radius:5px; background:#fff6e8; color:#684631; text-align:left; cursor:pointer; }.action-button:hover { background:#ffebd2; border-color:rgba(178,108,58,.45); }.action-button strong,.action-button span { display:block; }.action-button strong { font-size:13px; }.action-button span { margin-top:2px; font-size:11px; color:#987456; }.room-question { display:flex; gap:6px; margin-top:11px; padding-top:11px; border-top:1px solid rgba(152,104,61,.14); }.room-question input { min-width:0; flex:1; border:1px solid rgba(152,104,61,.25); border-radius:5px; outline:0; background:#fffdf7; color:#684631; padding:8px 9px; font:12px inherit; }.room-question input:focus { border-color:#c98c5f; }.room-question button { width:36px; border:0; border-radius:5px; background:#c98c5f; color:#fff; cursor:pointer; }.room-question button:disabled { opacity:.5; cursor:default; }
+.qi-dialogue { position:absolute; z-index:5; width:fit-content; max-width:min(310px,34vw); margin-left:clamp(26px,3vw,48px); padding:12px 14px; border:1px solid rgba(152,104,61,.25); border-radius:7px; background:rgba(255,250,240,.94); box-shadow:0 8px 22px rgba(85,52,25,.16); color:#6f4e36; font-size:13px; line-height:1.65; backdrop-filter:blur(7px); pointer-events:none; }.qi-dialogue::after { content:''; position:absolute; bottom:-8px; left:18px; width:14px; height:14px; border-right:1px solid rgba(152,104,61,.25); border-bottom:1px solid rgba(152,104,61,.25); background:rgba(255,250,240,.94); transform:rotate(45deg); }.qi-dialogue--left { margin:0 clamp(26px,3vw,48px) 0 0; transform:translateX(-100%); }.qi-dialogue--left::after { right:18px; left:auto; border:0; border-left:1px solid rgba(152,104,61,.25); border-bottom:1px solid rgba(152,104,61,.25); }.qi-dialogue p { margin:0; }.qi-bubble-enter-active,.qi-bubble-leave-active { transition:opacity .2s ease,transform .2s ease; }.qi-bubble-enter-from,.qi-bubble-leave-to { opacity:0; transform:translateY(8px); }
+.room-effect { position:absolute; z-index:4; width:clamp(84px,11vw,170px); transform:translate(-50%,-100%); pointer-events:none; filter:drop-shadow(0 4px 7px rgba(83,55,26,.16)); }.room-effect-enter-active,.room-effect-leave-active { transition:opacity .35s ease,transform .35s ease; }.room-effect-enter-from,.room-effect-leave-to { opacity:0; transform:translate(-50%,-85%) scale(.78); }
+.room-tool-panel { position:absolute; z-index:11; top:64px; right:20px; width:min(370px,calc(100% - 40px)); max-height:calc(100% - 86px); overflow:auto; padding:14px; border:1px solid rgba(255,249,234,.62); border-radius:7px; background:rgba(255,250,240,.96); box-shadow:0 15px 36px rgba(84,54,29,.23); backdrop-filter:blur(11px); }.tool-heading { display:flex; align-items:center; justify-content:space-between; margin-bottom:11px; border-bottom:1px solid rgba(152,104,61,.14); padding-bottom:9px; }.tool-heading h2 { margin:0; color:#65452f; font:600 18px/1.2 'Noto Serif SC',serif; }.tool-heading button { display:grid; width:27px; height:27px; place-items:center; border:0; border-radius:4px; background:transparent; color:#987252; font-size:22px; cursor:pointer; }.tool-heading button:hover { background:#ffead0; }.status-grid { display:grid; gap:8px; }.status-card { display:grid; grid-template-columns:64px 1fr; align-items:center; gap:9px; padding:7px; border-bottom:1px solid rgba(152,104,61,.12); }.status-card img { width:64px; height:49px; object-fit:contain; }.status-card strong,.status-card small { display:block; }.status-card strong { font-size:13px; }.status-card small { margin-top:2px; color:#987456; font-size:11px; }.state-options { grid-column:1 / -1; display:flex; gap:5px; }.state-options button { width:20px; height:5px; border:0; border-radius:3px; background:#e6c2a1; cursor:pointer; }.state-options button.active,.state-options button:hover { background:#bc7547; }.collection-progress { margin:0 0 10px; color:#8a6044; font-size:12px; }.collection-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:7px; }.collection-item { min-width:0; padding:5px 3px; border:1px solid rgba(152,104,61,.13); border-radius:5px; text-align:center; }.collection-item img { display:block; width:100%; height:52px; object-fit:contain; }.collection-item span { display:block; overflow:hidden; margin-top:3px; color:#744f37; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }.collection-item.locked img { filter:grayscale(1) brightness(.52); }.collection-item.locked span { color:#a98b74; }.memory-list,.achievement-list { display:grid; gap:8px; }.tool-empty { margin:4px 0; color:#9a755a; font-size:12px; }.memory-item { padding:9px; border-left:3px solid #d69b6d; background:#fff6e8; }.memory-item time { display:block; margin-bottom:2px; color:#a77a5b; font-size:10px; }.memory-item strong { color:#674630; font-size:13px; }.memory-item p { margin:3px 0 0; color:#8e694f; font-size:12px; }.mood-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }.mood-button { min-height:52px; border:1px solid rgba(152,104,61,.18); border-radius:5px; background:#fff6e8; color:#694a34; font:13px inherit; cursor:pointer; }.mood-button:hover { background:#ffead0; border-color:rgba(178,108,58,.45); }.mood-button:disabled { opacity:.55; cursor:default; }.achievement-item { display:flex; align-items:center; gap:10px; padding:8px; border:1px solid rgba(152,104,61,.13); border-radius:5px; }.achievement-item img { width:42px; height:42px; object-fit:contain; }.achievement-item strong,.achievement-item span { display:block; }.achievement-item strong { color:#694a34; font-size:13px; }.achievement-item span { margin-top:2px; color:#987456; font-size:11px; }.achievement-item.locked { opacity:.52; filter:grayscale(1); }.tool-panel-enter-active,.tool-panel-leave-active { transition:opacity .2s ease,transform .2s ease; }.tool-panel-enter-from,.tool-panel-leave-to { opacity:0; transform:translateY(-6px); }
+.action-panel-enter-active,.action-panel-leave-active,.qi-emote-enter-active,.qi-emote-leave-active { transition:opacity .22s ease,transform .22s ease; }.action-panel-enter-from,.action-panel-leave-to { opacity:0; transform:translateY(8px); }.qi-emote-enter-from,.qi-emote-leave-to { opacity:0; transform:translate(-50%,-100%) scale(.72) rotate(-8deg); }@keyframes qi-idle { from { translate:0 0; } 50% { translate:0 -3px; } to { translate:0 0; } }@keyframes qi-walk { from { translate:0 0; rotate:-2deg; } to { translate:0 -5px; rotate:2deg; } }
+@media (max-width:720px) { .game-header { top:max(9px,env(safe-area-inset-top)); left:10px; right:10px; }.icon-button { width:36px; height:36px; font-size:21px; }.room-image { object-position:center; }.action-panel { right:10px; bottom:18px; width:calc(100% - 20px); padding:12px; }.qi-dialogue { width:min(245px,61vw); margin-left:18px; padding:10px 11px; font-size:12px; }.qi-dialogue--left { margin-right:18px; }.room-hotspot span { font-size:10px; padding:1px 4px; }.room-hotspot small { display:none; } }
 </style>

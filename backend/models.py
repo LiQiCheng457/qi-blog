@@ -79,6 +79,18 @@ class ChatRecord(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class RoomChatRecord(SQLModel, table=True):
+    """房间场景对话记忆，与通用聊天记录隔离且按用户保存。"""
+    __tablename__ = "room_chat_messages"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="users.id", index=True)
+    scene_id: str = Field(default="after-work", index=True)
+    spot_id: str = Field(default="room", index=True)
+    role: str
+    content: str = Field(sa_column=Column(Text))
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Wish(SQLModel, table=True):
     """许愿池：用户投递的愿望 + 内置种子愿望"""
     __tablename__ = "wishes"
