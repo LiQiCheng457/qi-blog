@@ -16,6 +16,7 @@ const router = createRouter({
     { path: '/tools', name: 'tools', component: () => import('@/views/ToolsView.vue') },
     { path: '/games', name: 'games', component: () => import('@/views/GamesView.vue') },
     { path: '/games/2048', name: 'blog2048', component: () => import('@/views/games/Blog2048View.vue') },
+    { path: '/games/after-work', name: 'qi-after-work', component: () => import('@/views/games/QiAfterWorkRoomView.vue') },
 
     // 个人资料（所有登录用户）
     {

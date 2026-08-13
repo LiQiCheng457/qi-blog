@@ -13,12 +13,13 @@ const userStore = useUserStore()
 const route   = useRoute()
 const isAdmin = computed(() => route.path.startsWith('/admin'))
 const isBlog2048 = computed(() => route.name === 'blog2048')
+const isAfterWork = computed(() => route.name === 'qi-after-work')
 const isMobile = ref(false)
 let mobileQuery: MediaQueryList | null = null
 
 const showChat   = ref(false)
 const showBubble = ref(false)
-const hideFloatingTools = computed(() => isBlog2048.value && isMobile.value)
+const hideFloatingTools = computed(() => isAfterWork.value || (isBlog2048.value && isMobile.value))
 
 onMounted(() => {
   userStore.init()
@@ -51,7 +52,7 @@ function toggleChat() {
 </script>
 
 <template>
-  <NavBar v-if="!isAdmin" />
+  <NavBar v-if="!isAdmin && !isAfterWork" />
   <main>
     <RouterView v-slot="{ Component }">
       <Transition name="page">

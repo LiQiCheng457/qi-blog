@@ -15,6 +15,15 @@ interface GameCard {
 
 const games: GameCard[] = [
   {
+    key: 'after-work',
+    tag: '生活模拟',
+    name: '水豚祁的下班计划',
+    sub: '在房间里把今天过得舒服一点。',
+    icon: '🏠',
+    path: '/games/after-work',
+    desc: '点击房间里的物件安排水豚祁的一天，在精力、心情、压力和时间之间慢慢找到平衡。',
+  },
+  {
     key: '2048',
     tag: '益智',
     name: '2048 · 起风了版',
