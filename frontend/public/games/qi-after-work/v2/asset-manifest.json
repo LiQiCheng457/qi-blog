@@ -1,0 +1,32 @@
+{
+  "version": 2,
+  "scene": {
+    "canvas": { "width": 2048, "height": 1152 },
+    "base": "base/room-day.png",
+    "nightOverlay": "base/room-night-overlay.png"
+  },
+  "objects": {
+    "fridge": ["closed.png", "full.png", "empty.png", "fruit.png"],
+    "desk": ["off.png", "working.png", "error.png", "done.png"],
+    "console": ["off.png", "playing.png", "win.png", "lose.png"],
+    "door": ["closed.png", "light.png", "package.png"],
+    "bookshelf": ["base.png", "some.png", "full.png"],
+    "sofa": ["idle.png", "rest.png", "music.png"],
+    "bed": ["made.png", "rest.png", "sleep.png"],
+    "window": ["day.png", "rain.png", "night.png"]
+  },
+  "sourceSheets": {
+    "sofa": {
+      "path": "objects/sofa/source-sheet.png",
+      "grid": { "columns": 3, "rows": 1 },
+      "outputs": ["objects/sofa/idle.png", "objects/sofa/rest.png", "objects/sofa/music.png"]
+    },
+    "bed": {
+      "path": "objects/bed/source-sheet.png",
+      "grid": { "columns": 3, "rows": 1 },
+      "outputs": ["objects/bed/made.png", "objects/bed/rest.png", "objects/bed/sleep.png"]
+    }
+  },
+  "characters": ["qi-idle.png", "qi-walk-1.png", "qi-walk-2.png", "qi-typing.png", "qi-sleeping.png"],
+  "effects": ["hearts.png", "rain.png", "sparkles.png", "sleep.png", "question.png", "sweat.png"]
+}

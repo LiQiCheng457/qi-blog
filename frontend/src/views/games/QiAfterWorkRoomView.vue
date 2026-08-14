@@ -3,26 +3,18 @@ import { computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useUserStore } from '@/stores/user'
+import { assetUrl } from '@/utils/assets'
 import RoomScene from './qi-after-work/components/RoomScene.vue'
 import RoomToolPanel from './qi-after-work/components/RoomToolPanel.vue'
-import { type RoomTool } from './qi-after-work/data/room'
+import { roomAssets, roomNavigation, type RoomTool } from './qi-after-work/data/room'
 import { useRoomGame } from './qi-after-work/composables/useRoomGame'
-
-const roomTools: RoomTool[] = ['status', 'collection', 'memory', 'emotions', 'achievements']
-const toolLabels: Record<RoomTool, string> = {
-  status: '房间状态',
-  collection: '收藏图鉴',
-  memory: '今日记忆',
-  emotions: '情绪互动',
-  achievements: '成就',
-}
 
 const router = useRouter()
 const userStore = useUserStore()
 const { profile, isLoggedIn } = storeToRefs(userStore)
 const userId = computed(() => profile.value?.id)
 const game = useRoomGame({ userId, isLoggedIn })
-const { spots, selectedSpotId, selectedSpot, lastResult, loading, stateNotice, menuOpen, activeTool, character, state, selectSpot, walkToFloor, runAction, askFromRoom, runMoodAction, toggleTool, closeTool, updateFurniture } = game
+const { spots, selectedSpotId, selectedSpot, lastResult, loading, stateNotice, activeTool, character, state, selectSpot, walkToFloor, runAction, askFromRoom, runMoodAction, toggleTool, closeTool, updateFurniture } = game
 const { position, moving, facingLeft, activeEmote, activeEffect, bubbleOnLeft, bubbleStyle } = character
 const { furnitureStates, discoveredItems, memories, achievements } = state
 
@@ -36,18 +28,19 @@ onUnmounted(() => document.body.classList.remove('qi-after-work-active'))
 function openTool(tool: RoomTool) {
   toggleTool(tool)
 }
+
+function navigationAsset(name: string, isReturn = false) {
+  return assetUrl(isReturn ? roomAssets.collectible(name) : roomAssets.ui(name))
+}
 </script>
 
 <template>
   <div class="after-work-page">
     <header class="game-header">
-      <button class="icon-button" type="button" title="返回游戏区" aria-label="返回游戏区" @click="router.push('/games')">←</button>
-      <div class="room-tools">
-        <button class="icon-button" type="button" title="房间菜单" aria-label="房间菜单" @click="menuOpen = !menuOpen">☰</button>
-        <aside v-if="menuOpen" class="room-menu" aria-label="房间功能菜单">
-          <button v-for="tool in roomTools" :key="tool" type="button" :class="{ active: activeTool === tool }" @click="openTool(tool)">{{ toolLabels[tool] }}</button>
-        </aside>
-      </div>
+      <nav class="room-navigation" aria-label="游戏导航">
+        <button class="room-nav-button room-nav-button--return" type="button" title="返回游戏区" aria-label="返回游戏区" @click="router.push('/games')"><img :src="navigationAsset('backpack', true)" alt="" /></button>
+        <button v-for="item in roomNavigation" :key="item.tool" class="room-nav-button" :class="{ active: activeTool === item.tool }" type="button" :title="item.label" :aria-label="item.label" @click="openTool(item.tool)"><img :src="navigationAsset(item.icon)" alt="" /></button>
+      </nav>
     </header>
     <main class="room-shell">
       <RoomScene
@@ -78,6 +71,6 @@ function openTool(tool: RoomTool) {
 </template>
 
 <style scoped>
-:global(body.qi-after-work-active),:global(body.qi-after-work-active #app),:global(body.qi-after-work-active main) { height:100dvh; overflow:hidden; }.after-work-page { position:relative; width:100%; height:100dvh; overflow:hidden; background:#ecbd7c; color:#5c422b; isolation:isolate; }.game-header { position:absolute; z-index:5; top:max(14px,env(safe-area-inset-top)); left:16px; right:16px; display:flex; align-items:center; justify-content:space-between; pointer-events:none; }.room-shell { position:absolute; inset:0; z-index:0; }.icon-button { pointer-events:auto; display:grid; width:40px; height:40px; place-items:center; border:1px solid rgba(255,249,234,.54); border-radius:50%; background:rgba(97,65,36,.28); box-shadow:0 4px 14px rgba(86,52,24,.16); color:#fffaf0; font-size:23px; line-height:1; backdrop-filter:blur(7px); cursor:pointer; }.icon-button:hover { background:rgba(97,65,36,.45); }.room-tools { position:relative; pointer-events:auto; }.room-menu { position:absolute; top:48px; right:0; z-index:12; display:grid; width:126px; padding:5px; border:1px solid rgba(255,249,234,.62); border-radius:7px; background:rgba(255,250,240,.95); box-shadow:0 12px 28px rgba(84,54,29,.2); backdrop-filter:blur(10px); }.room-menu button { padding:8px 9px; border:0; border-radius:4px; background:transparent; color:#694a34; font:12px inherit; text-align:left; cursor:pointer; }.room-menu button:hover,.room-menu button.active { background:#ffead0; color:#9a5f39; }.tool-panel-enter-active,.tool-panel-leave-active { transition:opacity .2s ease,transform .2s ease; }.tool-panel-enter-from,.tool-panel-leave-to { opacity:0; transform:translateY(-6px); }@media (max-width:720px) { .game-header { top:max(9px,env(safe-area-inset-top)); left:10px; right:10px; }.icon-button { width:36px; height:36px; font-size:21px; } }
+:global(body.qi-after-work-active),:global(body.qi-after-work-active #app),:global(body.qi-after-work-active main) { height:100dvh; overflow:hidden; }.after-work-page { position:relative; width:100%; height:100dvh; overflow:hidden; background:#ecbd7c; color:#5c422b; isolation:isolate; }.game-header { position:absolute; z-index:12; top:max(14px,env(safe-area-inset-top)); right:16px; display:flex; pointer-events:none; }.room-shell { position:absolute; inset:0; z-index:0; }.room-navigation { display:flex; align-items:center; gap:7px; padding:7px; border:1px solid rgba(255,249,234,.6); border-radius:8px; background:rgba(255,250,240,.82); box-shadow:0 7px 20px rgba(84,54,29,.17); backdrop-filter:blur(8px); pointer-events:auto; }.room-nav-button { display:grid; width:60px; height:60px; place-items:center; padding:5px; border:1px solid transparent; border-radius:6px; background:transparent; cursor:pointer; }.room-nav-button img { display:block; width:100%; height:100%; object-fit:contain; filter:drop-shadow(0 3px 3px rgba(84,54,29,.12)); }.room-nav-button:hover,.room-nav-button:focus-visible,.room-nav-button.active { border-color:rgba(189,117,72,.42); background:#ffead0; outline:0; }.room-nav-button--return { margin-right:3px; border-right-color:rgba(152,104,61,.16); border-radius:6px 0 0 6px; }.tool-panel-enter-active,.tool-panel-leave-active { transition:opacity .2s ease,transform .2s ease; }.tool-panel-enter-from,.tool-panel-leave-to { opacity:0; transform:translateY(-6px); }@media (max-width:720px) { .game-header { top:max(9px,env(safe-area-inset-top)); right:10px; }.room-navigation { gap:3px; padding:4px; }.room-nav-button { width:42px; height:42px; padding:4px; } }
 .state-notice { position:absolute; z-index:13; top:75px; right:22px; padding:9px 13px; border:1px solid rgba(152,104,61,.2); border-radius:6px; background:rgba(255,250,240,.95); box-shadow:0 7px 18px rgba(84,54,29,.18); color:#8a5d3d; font-size:12px; }.state-notice-enter-active,.state-notice-leave-active { transition:opacity .2s ease,transform .2s ease; }.state-notice-enter-from,.state-notice-leave-to { opacity:0; transform:translateY(-6px); }
 </style>

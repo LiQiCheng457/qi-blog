@@ -10,7 +10,6 @@ export function useRoomGame(options: { userId: Readonly<Ref<string | number | un
   const lastResult = ref('')
   const loading = ref(false)
   const stateNotice = ref('')
-  const menuOpen = ref(false)
   const activeTool = ref<RoomTool | null>(null)
   const character = useRoomCharacter()
   const state = useRoomState(options.userId)
@@ -43,7 +42,7 @@ export function useRoomGame(options: { userId: Readonly<Ref<string | number | un
   }
 
   function walkToFloor(event: MouseEvent) {
-    if ((event.target as HTMLElement).closest('.room-hotspot, .action-panel, .room-menu, .room-tool-panel, .game-header')) return
+    if ((event.target as HTMLElement).closest('.room-hotspot, .action-panel, .room-navigation, .room-tool-panel, .game-header')) return
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
     const x = Math.max(7, Math.min(93, ((event.clientX - rect.left) / rect.width) * 100))
     const y = Math.max(67, Math.min(91, ((event.clientY - rect.top) / rect.height) * 100))
@@ -100,7 +99,6 @@ export function useRoomGame(options: { userId: Readonly<Ref<string | number | un
 
   async function runMoodAction(action: MoodAction) {
     activeTool.value = null
-    menuOpen.value = false
     character.showEmote(action.spotId, action.emote)
     character.showEffect(action.effect)
     state.addMemory('和水獭祁聊了聊', action.label)
@@ -112,15 +110,14 @@ export function useRoomGame(options: { userId: Readonly<Ref<string | number | un
 
   function toggleTool(tool: RoomTool) {
     activeTool.value = activeTool.value === tool ? null : tool
-    menuOpen.value = true
   }
 
-  function closeTool() { activeTool.value = null; menuOpen.value = false }
+  function closeTool() { activeTool.value = null }
 
   onUnmounted(() => {
     if (resultTimer) window.clearTimeout(resultTimer)
     if (stateNoticeTimer) window.clearTimeout(stateNoticeTimer)
   })
 
-  return { spots, selectedSpotId, selectedSpot, lastResult, loading, stateNotice, menuOpen, activeTool, character, state, selectSpot, walkToFloor, runAction, askFromRoom, runMoodAction, toggleTool, closeTool, updateFurniture }
+  return { spots, selectedSpotId, selectedSpot, lastResult, loading, stateNotice, activeTool, character, state, selectSpot, walkToFloor, runAction, askFromRoom, runMoodAction, toggleTool, closeTool, updateFurniture }
 }
