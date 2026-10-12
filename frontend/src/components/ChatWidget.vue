@@ -66,7 +66,7 @@ async function speakText(text: string) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({ text: cleaned }),
     })
@@ -141,7 +141,30 @@ function onDragStart(e: MouseEvent) {
   document.addEventListener('mouseup', onUp)
 }
 
-// ── 历史记录（从 API 加载） ─────────────────────────────
+// ── 历史记录：登录用户走服务器，游客存浏览器本地 ──────
+const GUEST_KEY = 'qi_guest_chat'
+
+function loadGuestHistory() {
+  histLoading.value = true
+  try {
+    const raw = localStorage.getItem(GUEST_KEY)
+    const saved: Message[] = raw ? JSON.parse(raw) : []
+    messages.value = saved.length > 0 ? saved : [{ ...DEFAULT_GREETING }]
+  } catch {
+    messages.value = [{ ...DEFAULT_GREETING }]
+  } finally {
+    histLoading.value = false
+  }
+}
+
+function persistGuestHistory() {
+  if (isLoggedIn.value) return
+  try {
+    // 只保留最近 40 条，防止本地存储膨胀
+    localStorage.setItem(GUEST_KEY, JSON.stringify(messages.value.slice(-40)))
+  } catch {}
+}
+
 async function loadHistory() {
   histLoading.value = true
   try {
@@ -164,16 +187,18 @@ async function loadHistory() {
 onMounted(async () => {
   if (isLoggedIn.value) {
     await loadHistory()
+  } else {
+    loadGuestHistory()
   }
   if (props.open) initPos()
 })
 
-// 登录状态变化时重新加载
+// 登录状态变化时切换历史来源
 watch(isLoggedIn, async (loggedIn) => {
   if (loggedIn) {
     await loadHistory()
   } else {
-    messages.value = []
+    loadGuestHistory()
   }
 })
 
@@ -209,9 +234,15 @@ watch(() => props.open, async (val) => {
 
 // ── 发送 ───────────────────────────────────────────────
 async function send() {
-  if (!isLoggedIn.value || !input.value.trim() || loading.value) return
+  if (!input.value.trim() || loading.value) return
 
   const text = input.value.trim()
+  // 游客模式携带最近对话（此时本轮消息尚未入列，天然不含当前消息）
+  const guestHistory = isLoggedIn.value ? [] : messages.value
+    .filter(m => m.content.trim() && m.content !== DEFAULT_GREETING.content)
+    .slice(-20)
+    .map(m => ({ role: m.role, content: m.content }))
+
   messages.value.push({ role: 'user', content: text })
   input.value = ''
   loading.value = true
@@ -223,16 +254,24 @@ async function send() {
   const idx = messages.value.length - 1
 
   try {
+    const token = getToken()
     const resp = await fetch(`${API_BASE}/api/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${getToken()}`,
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: JSON.stringify({ message: text }),
+      body: JSON.stringify(isLoggedIn.value ? { message: text } : { message: text, history: guestHistory }),
     })
 
-    if (!resp.ok || !resp.body) throw new Error('请求失败')
+    if (!resp.ok || !resp.body) {
+      let detail = '出了点问题，稍后再试试？'
+      try {
+        const j = await resp.json()
+        if (typeof j.detail === 'string') detail = j.detail
+      } catch {}
+      throw new Error(detail)
+    }
 
     const reader  = resp.body.getReader()
     const decoder = new TextDecoder()
@@ -243,10 +282,13 @@ async function send() {
       messages.value[idx].content += decoder.decode(value, { stream: true })
       await scrollBottom()
     }
-  } catch {
-    messages.value[idx].content = '(・_・;) 呃，出了点问题，稍后再试试？'
+  } catch (e) {
+    messages.value[idx].content = e instanceof Error && e.message
+      ? e.message
+      : '(・_・;) 呃，出了点问题，稍后再试试？'
   } finally {
     loading.value = false
+    persistGuestHistory()
     await scrollBottom()
     inputEl.value?.focus()
     // 自动播放开启时朗读 AI 回复
@@ -265,13 +307,16 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 async function clearHistory() {
-  if (!isLoggedIn.value) return
-  try {
-    await fetch(`${API_BASE}/api/chat/history`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${getToken()}` },
-    })
-  } catch {}
+  if (isLoggedIn.value) {
+    try {
+      await fetch(`${API_BASE}/api/chat/history`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${getToken()}` },
+      })
+    } catch {}
+  } else {
+    try { localStorage.removeItem(GUEST_KEY) } catch {}
+  }
   messages.value = [{ role: 'assistant', content: '嗯，清掉了。(￣▽￣) 重新聊吧。' }]
 }
 
@@ -329,13 +374,12 @@ function formatMsg(text: string): string {
             <span class="header-name">水豚祁</span>
             <span class="header-status">
               <span class="status-dot" :class="{ loading }"></span>
-              {{ loading ? '思考中…' : isLoggedIn ? '在线' : '未登录' }}
+              {{ loading ? '思考中…' : isLoggedIn ? '在线' : '游客模式' }}
             </span>
           </div>
         </div>
         <div class="header-actions" @mousedown.stop>
           <button
-            v-if="isLoggedIn"
             class="icon-btn"
             :class="{ 'tts-active': autoPlay || isPlaying }"
             :title="isPlaying ? '停止朗读' : autoPlay ? '关闭自动朗读' : '开启自动朗读'"
@@ -345,19 +389,13 @@ function formatMsg(text: string): string {
             <span v-else-if="autoPlay">🔊</span>
             <span v-else>🔇</span>
           </button>
-          <button v-if="isLoggedIn" class="icon-btn" title="清空记录" @click="clearHistory">🗑</button>
+          <button class="icon-btn" title="清空记录" @click="clearHistory">🗑</button>
           <button class="icon-btn" title="关闭" @click="emit('close')">✕</button>
         </div>
       </div>
 
-      <!-- 未登录锁定状态 -->
-      <div v-if="!isLoggedIn" class="chat-locked">
-        <img :src="qiSmall" alt="水豚祁" class="lock-avatar" />
-        <p class="lock-msg">还没认识你呢~<br>登录之后才能和我聊哦 (´・ω・`)</p>
-      </div>
-
       <!-- 历史加载中 -->
-      <div v-else-if="histLoading" class="chat-loading">
+      <div v-if="histLoading" class="chat-loading">
         <span class="typing-dots"><span></span><span></span><span></span></span>
         <span class="loading-tip">加载历史记录…</span>
       </div>
@@ -389,13 +427,13 @@ function formatMsg(text: string): string {
           ref="inputEl"
           v-model="input"
           class="chat-input"
-          :placeholder="isLoggedIn ? '说点什么… (Enter 发送，Shift+Enter 换行)' : '登录后才能发送消息'"
-          :disabled="loading || !isLoggedIn"
+          placeholder="说点什么… (Enter 发送，Shift+Enter 换行)"
+          :disabled="loading"
           @keydown="onKeydown"
         ></textarea>
         <button
           class="send-btn"
-          :disabled="!input.trim() || loading || !isLoggedIn"
+          :disabled="!input.trim() || loading"
           @click="send"
         >
           {{ loading ? '…' : '发送' }}
@@ -473,31 +511,6 @@ function formatMsg(text: string): string {
   transition: background .15s, color .15s;
 }
 .icon-btn:hover { background: var(--qi-bg-muted); color: var(--qi-ink); }
-
-/* 未登录锁定 */
-.chat-locked {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  padding: 2rem 1.5rem;
-}
-.lock-avatar {
-  width: 64px; height: 64px;
-  border-radius: 50%;
-  object-fit: cover;
-  opacity: .65;
-  filter: grayscale(.3);
-}
-.lock-msg {
-  font-size: 14px;
-  color: var(--qi-ink-muted);
-  line-height: 1.8;
-  text-align: center;
-  margin: 0;
-}
 
 /* 历史加载 */
 .chat-loading {

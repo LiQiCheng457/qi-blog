@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
 import httpx
@@ -16,9 +16,18 @@ from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_session, AsyncSessionLocal
 from models import ChatRecord, User
-from auth import get_current_user
+from auth import get_current_user, get_current_user_optional
+from ratelimit import allow as rate_allow, client_ip
 
 router = APIRouter(prefix="/api/chat", tags=["聊天"])
+
+# ── 游客限额（按 IP，每小时） ──────────────────────────────
+GUEST_CHAT_LIMIT = 20   # 聊天
+GUEST_TTS_LIMIT  = 30   # 语音
+
+
+def _guest_allowed(request: Request, kind: str, limit: int) -> bool:
+    return rate_allow(f"{kind}:{client_ip(request)}", limit)
 
 SYSTEM_PROMPT = """你是「水豚祁」，一只有自己性格的水豚，也是博客「起风了」的 AI 陪伴角色。
 
@@ -83,14 +92,14 @@ SYSTEM_PROMPT = """你是「水豚祁」，一只有自己性格的水豚，也�
 """
 
 
-def _build_system_prompt(user: User) -> str:
+def _build_system_prompt(user: User | None) -> str:
     """根据用户身份在 system prompt 末尾注入当前时间和对话对象信息"""
     from datetime import datetime, timezone, timedelta
     cst = timezone(timedelta(hours=8))
     now = datetime.now(cst).strftime("%Y年%m月%d日 %H:%M")
     time_note = f"\n\n## 当前时间\n现在是北京时间 {now}，你清楚地知道今天是几号、几点。"
 
-    if user.role == "admin":
+    if user and user.role == "admin":
         note = (
             "\n\n## 当前对话对象——你的主人\n"
             f"你正在和博主「{user.username}」本人聊天，他就是你的主人，不是普通访客。\n"
@@ -98,11 +107,18 @@ def _build_system_prompt(user: User) -> str:
             "他问博客或技术的问题可以更直接、更详细地回答，不用过度解释背景。\n"
             "他如果叫你干活（改代码、写文案等），嘴上可以嘟囔但还是要做。(＞﹏＜)"
         )
-    else:
+    elif user:
         note = (
             f"\n\n## 当前对话对象\n"
             f"用户名：{user.username}（注册访客）。\n"
             f"可以亲切地叫他「{user.username}」。如果对方自我介绍了别的称呼，记住并使用那个。"
+        )
+    else:
+        note = (
+            "\n\n## 当前对话对象\n"
+            "这是一位没有登录的游客，你不知道ta的名字，把ta当作一位刚认识的陌生朋友，自然随缘地聊。\n"
+            "不要主动催ta注册登录；只有ta自己问起账号、聊天记录相关的事，才如实介绍：游客的聊天记录只存在ta自己的浏览器里，不存服务器，换了设备或清了缓存就没有了。\n"
+            "称呼上直接用「你」就好；如果对方自我介绍了称呼，就记住并用那个称呼。"
         )
     return SYSTEM_PROMPT + time_note + note
 
@@ -174,8 +190,13 @@ async def _get_nls_token() -> str:
     return _nls_cache["token"]
 
 
+class HistoryItem(BaseModel):
+    role: str
+    content: str
+
 class ChatRequest(BaseModel):
-    message: str   # 只需发送本轮新消息，历史由后端从数据库加载
+    message: str
+    history: list[HistoryItem] = []   # 游客模式：由前端携带最近对话（登录用户忽略此项，走数据库）
 
 class TTSRequest(BaseModel):
     text: str
@@ -185,38 +206,53 @@ class TTSRequest(BaseModel):
 @router.post("")
 async def chat(
     req: ChatRequest,
-    current: User = Depends(get_current_user),
+    request: Request,
+    current: User | None = Depends(get_current_user_optional),
     session: AsyncSession = Depends(get_session),
 ):
     if not req.message.strip():
         raise HTTPException(400, "消息不能为空")
 
-    # 1. 持久化用户新消息
-    session.add(ChatRecord(user_id=current.id, role="user", content=req.message))
-    await session.commit()
+    if current is None:
+        # ── 游客模式：按 IP 限流，历史由前端携带，不落库 ──
+        if not _guest_allowed(request, "chat", GUEST_CHAT_LIMIT):
+            raise HTTPException(429, "水豚聊累了，休息一下，一小时后再来找它吧~ (´・ω・`)")
+        system_prompt = _build_system_prompt(None)
+        history = [
+            {"role": h.role if h.role in ("user", "assistant") else "user",
+             "content": h.content[:2000]}
+            for h in req.history[-20:]
+        ]
+        user_id = None
+    else:
+        # ── 登录用户：先取最近历史（不含本轮），再落库本轮消息 ──
+        result = await session.execute(
+            select(ChatRecord)
+            .where(ChatRecord.user_id == current.id)
+            .order_by(ChatRecord.created_at.desc())
+            .limit(60)
+        )
+        records = list(result.scalars().all())
+        records.reverse()
+        history = [{"role": r.role, "content": r.content} for r in records]
 
-    # 2. 从数据库加载该用户完整历史（包括刚存入的这条），作为 DeepSeek 上下文
-    result = await session.execute(
-        select(ChatRecord)
-        .where(ChatRecord.user_id == current.id)
-        .order_by(ChatRecord.created_at.asc())
-        .limit(60)
-    )
-    history = result.scalars().all()
+        session.add(ChatRecord(user_id=current.id, role="user", content=req.message))
+        await session.commit()
+        system_prompt = _build_system_prompt(current)
+        user_id = current.id
 
     api_key = os.getenv("DEEPSEEK_API_KEY", "")
     payload = {
         "model": "deepseek-chat",
         "messages": [
-            {"role": "system", "content": _build_system_prompt(current)},
-            *[{"role": r.role, "content": r.content} for r in history],
+            {"role": "system", "content": system_prompt},
+            *[{"role": r["role"], "content": r["content"]} for r in history],
+            {"role": "user", "content": req.message},
         ],
         "stream": True,
         "max_tokens": 600,
         "temperature": 0.85,
     }
-
-    user_id = current.id
 
     async def generate():
         collected: list[str] = []
@@ -249,7 +285,8 @@ async def chat(
             collected.append(err)
             yield err
         finally:
-            if collected:
+            # 游客对话不落库（user_id 为 None）
+            if collected and user_id is not None:
                 async with AsyncSessionLocal() as s:
                     s.add(ChatRecord(
                         user_id=user_id,
@@ -299,9 +336,13 @@ async def clear_history(
 @router.post("/tts")
 async def text_to_speech(
     req: TTSRequest,
-    current: User = Depends(get_current_user),
+    request: Request,
+    current: User | None = Depends(get_current_user_optional),
 ):
-    """将文本转为语音（阿里云 NLS，返回 mp3）"""
+    """将文本转为语音（阿里云 NLS，返回 mp3）；游客按 IP 限流"""
+    if current is None and not _guest_allowed(request, "tts", GUEST_TTS_LIMIT):
+        raise HTTPException(429, "今天的朗读额度用完啦，一小时后再试吧~ 💤")
+
     appkey = os.getenv("ALIYUN_NLS_APPKEY", "")
     if not appkey:
         raise HTTPException(503, "阿里云 TTS 未配置：缺少 ALIYUN_NLS_APPKEY")

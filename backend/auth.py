@@ -63,6 +63,11 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     return user
 
 
+async def get_current_user_optional(token: str = Depends(oauth2_scheme)):
+    """有合法 token 返回用户，否则返回 None（游客访问），不抛 401"""
+    return await _get_user_from_token(token)
+
+
 async def get_current_admin(token: str = Depends(oauth2_scheme)):
     """仅允许 role=admin 的用户"""
     user = await _get_user_from_token(token)
