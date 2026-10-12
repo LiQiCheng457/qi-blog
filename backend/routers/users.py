@@ -1,15 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel import select, or_, SQLModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_session
 from models import User, UserRegister, UserLogin, UserRead, UserUpdate
 from auth import hash_password, verify_password, create_access_token, get_current_user
+from ratelimit import blocked as rate_blocked, record as rate_record, allow as rate_allow, client_ip
 
 router = APIRouter(prefix="/api/users", tags=["用户"])
 
 
 @router.post("/register", response_model=UserRead, status_code=201)
-async def register(data: UserRegister, session: AsyncSession = Depends(get_session)):
+async def register(data: UserRegister, request: Request, session: AsyncSession = Depends(get_session)):
+    if not rate_allow(f"register:{client_ip(request)}", 5, 3600):
+        raise HTTPException(429, "注册太频繁，请一小时后再试")
     if len(data.username) < 2:
         raise HTTPException(400, "用户名至少 2 个字符")
     if len(data.password) < 6:
@@ -35,8 +38,12 @@ async def register(data: UserRegister, session: AsyncSession = Depends(get_sessi
 
 
 @router.post("/login")
-async def login(data: UserLogin, session: AsyncSession = Depends(get_session)):
+async def login(data: UserLogin, request: Request, session: AsyncSession = Depends(get_session)):
     """支持用户名或邮箱登录"""
+    fail_key = f"login_fail:{client_ip(request)}"
+    if rate_blocked(fail_key, 10, 3600):
+        raise HTTPException(429, "尝试次数过多，请一小时后再试")
+
     result = await session.execute(
         select(User).where(
             or_(User.username == data.login, User.email == data.login)
@@ -44,6 +51,7 @@ async def login(data: UserLogin, session: AsyncSession = Depends(get_session)):
     )
     user = result.scalar_one_or_none()
     if not user or not verify_password(data.password, user.password_hash):
+        rate_record(fail_key)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "账号或密码错误")
 
     token = create_access_token({"sub": str(user.id), "role": user.role})

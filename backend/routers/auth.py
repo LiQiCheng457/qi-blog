@@ -1,14 +1,29 @@
 """保留 OAuth2 token 端点，现在用统一 User 表认证"""
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_session
 from models import User, UserRead
 from auth import verify_password, create_access_token, get_current_user
+from ratelimit import blocked as rate_blocked, record as rate_record, client_ip
 from sqlmodel import SQLModel
 
 router = APIRouter(prefix="/api/auth", tags=["认证"])
+
+LOGIN_FAIL_LIMIT = 10     # 1 小时内失败 10 次
+LOGIN_FAIL_WINDOW = 3600
+
+
+def _reject_if_locked(request: Request):
+    """登录防爆破：同一 IP 失败过多则锁定"""
+    key = f"login_fail:{client_ip(request)}"
+    if rate_blocked(key, LOGIN_FAIL_LIMIT, LOGIN_FAIL_WINDOW):
+        raise HTTPException(429, "尝试次数过多，请一小时后再试")
+
+
+def _record_login_fail(request: Request):
+    rate_record(f"login_fail:{client_ip(request)}")
 
 
 class Token(SQLModel):
@@ -18,10 +33,12 @@ class Token(SQLModel):
 
 @router.post("/token", response_model=Token)
 async def login_form(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     session: AsyncSession = Depends(get_session),
 ):
     """OAuth2 兼容接口（支持用户名或邮箱）"""
+    _reject_if_locked(request)
     result = await session.execute(
         select(User).where(
             or_(User.username == form_data.username, User.email == form_data.username)
@@ -29,6 +46,7 @@ async def login_form(
     )
     user = result.scalar_one_or_none()
     if not user or not verify_password(form_data.password, user.password_hash):
+        _record_login_fail(request)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="账号或密码错误",

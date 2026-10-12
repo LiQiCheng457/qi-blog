@@ -8,7 +8,12 @@ load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/qiblog")
 
-engine = create_async_engine(DATABASE_URL, echo=False)
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=False,
+    pool_pre_ping=True,    # 取连接前探活，避免空闲连接被网络设备掐断导致偶发500
+    pool_recycle=1800,     # 连接最长复用30分钟
+)
 
 AsyncSessionLocal = sessionmaker(
     bind=engine,
