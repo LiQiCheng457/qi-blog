@@ -49,3 +49,6 @@ frontend/vite.*.log
 Thumbs.db
 .vscode/
 .idea/
+
+# pip cache (installed as qiblog user)
+backend/.cache/
